@@ -1,1 +1,163 @@
+public class CpStaticDataService
+{
+    private readonly HttpClient _httpClient;
+    private readonly string _baseUrl;
+    private readonly string _endpoint;
+
+    public CpStaticDataService(HttpClient httpClient, string baseUrl, string endpoint)
+    {
+        _httpClient = httpClient;
+        _baseUrl = baseUrl;
+        _endpoint = endpoint;
+    }
+
+    public async Task<string> GetCounterpartyStaticDataAsync(string token, string counterpartyName)
+    {
+        var url = $"{_baseUrl}{_endpoint}{counterpartyName}";
+        _httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+        var response = await _httpClient.GetAsync(url);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadAsStringAsync();
+    }
+
+    public async Task<string> GetFilteredCounterpartyDataAsync(string token, string counterpartyName, string condition = null)
+    {
+        var jsonString = await GetCounterpartyStaticDataAsync(token, counterpartyName);
+        using var jsonDoc = JsonDocument.Parse(jsonString);
+        var root = jsonDoc.RootElement.Clone();
+
+        if (condition == null)
+        {
+            return jsonString;
+        }
+
+        var conditionParts = condition.Split(' ');
+        if (conditionParts.Length != 3)
+        {
+            throw new ArgumentException("Invalid condition format. Use 'key operator value'.");
+        }
+
+        string key = conditionParts[0];
+        string operatorSymbol = conditionParts[1];
+        string value = conditionParts[2];
+
+        JsonElement? filteredRoot = null;
+
+        if (root.ValueKind == JsonValueKind.Object)
+        {
+            filteredRoot = FilterSingleCounterparty(root, key, operatorSymbol, value);
+        }
+        else if (root.ValueKind == JsonValueKind.Array)
+        {
+            filteredRoot = FilterMultipleCounterparties(root, key, operatorSymbol, value);
+        }
+        else
+        {
+            throw new InvalidOperationException("Unexpected JSON structure");
+        }
+
+        if (filteredRoot == null)
+        {
+            return null;
+        }
+
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))
+        {
+            if (filteredRoot.Value.ValueKind == JsonValueKind.Object)
+            {
+                writer.WriteStartObject();
+                foreach (var property in filteredRoot.Value.EnumerateObject())
+                {
+                    property.WriteTo(writer);
+                }
+                writer.WriteEndObject();
+            }
+            else if (filteredRoot.Value.ValueKind == JsonValueKind.Array)
+            {
+                writer.WriteStartArray();
+                foreach (var item in filteredRoot.Value.EnumerateArray())
+                {
+                    item.WriteTo(writer);
+                }
+                writer.WriteEndArray();
+            }
+        }
+
+        return Encoding.UTF8.GetString(stream.ToArray());
+    }
+
+    private JsonElement? FilterSingleCounterparty(JsonElement element, string key, string operatorSymbol, string value)
+    {
+        if (IsConditionMet(element, key, operatorSymbol, value))
+        {
+            return element;
+        }
+        return null;
+    }
+
+    private JsonElement FilterMultipleCounterparties(JsonElement element, string key, string operatorSymbol, string value)
+    {
+        var filteredArray = new List<JsonElement>();
+
+        foreach (var item in element.EnumerateArray())
+        {
+            if (item.ValueKind == JsonValueKind.Object && IsConditionMet(item, key, operatorSymbol, value))
+            {
+                filteredArray.Add(item.Clone());
+            }
+        }
+
+        var array = new JsonElement[filteredArray.Count];
+        filteredArray.CopyTo(array);
+
+        return JsonDocument.Parse(JsonSerializer.Serialize(array)).RootElement.Clone();
+    }
+
+    private bool IsConditionMet(JsonElement element, string key, string operatorSymbol, string value)
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var property in element.EnumerateObject())
+            {
+                if (property.NameEquals(key))
+                {
+                    return EvaluateCondition(property.Value.GetString(), operatorSymbol, value);
+                }
+                else if (property.Value.ValueKind == JsonValueKind.Object || property.Value.ValueKind == JsonValueKind.Array)
+                {
+                    if (IsConditionMet(property.Value, key, operatorSymbol, value))
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+        else if (element.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in element.EnumerateArray())
+            {
+                if (item.ValueKind == JsonValueKind.Object)
+                {
+                    if (IsConditionMet(item, key, operatorSymbol, value))
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private bool EvaluateCondition(string propertyValue, string operatorSymbol, string value)
+    {
+        return operatorSymbol switch
+        {
+            "!=" => propertyValue != value,
+            "=" => propertyValue == value,
+            _ => throw new ArgumentException($"Unsupported operator '{operatorSymbol}'")
+        };
+    }
+}
 
