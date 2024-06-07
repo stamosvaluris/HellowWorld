@@ -1,138 +1,35 @@
-public async Task<string> GetFilteredCounterpartyDataAsync(string token, string counterpartyName, string condition = null)
+using System;
+using System.Net.Http;
+using System.Threading.Tasks;
+using FIS_Client.Config;
+using FIS_Client.Services;
+
+class Program
 {
-    var jsonString = await GetCounterpartyStaticDataAsync(token, counterpartyName);
-    using var jsonDoc = JsonDocument.Parse(jsonString);
-    var root = jsonDoc.RootElement.Clone();
-
-    if (condition == null)
+    static async Task Main(string[] args)
     {
-        return jsonString;
-    }
-
-    var conditionParts = condition.Split(' ');
-    if (conditionParts.Length != 3)
-    {
-        throw new ArgumentException("Invalid condition format. Use 'key operator value'.");
-    }
-
-    string key = conditionParts[0];
-    string operatorSymbol = conditionParts[1];
-    string value = conditionParts[2];
-
-    var filteredRoot = FilterJsonElement(root, key, operatorSymbol, value);
-
-    using var stream = new MemoryStream();
-    using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))
-    {
-        filteredRoot.WriteTo(writer);
-    }
-
-    return Encoding.UTF8.GetString(stream.ToArray());
-}
-
-private JsonElement FilterJsonElement(JsonElement element, string key, string operatorSymbol, string value)
-{
-    var filteredProperties = new List<(string Name, JsonElement Value)>();
-
-    foreach (var property in element.EnumerateObject())
-    {
-        if (property.Value.ValueKind == JsonValueKind.Object)
+        var config = ConfigReader.LoadConfig();
+        if (config == null)
         {
-            if (IsConditionMet(property.Value, key, operatorSymbol, value))
-            {
-                filteredProperties.Add((property.Name, property.Value.Clone()));
-            }
-            else
-            {
-                var filteredSubElement = FilterJsonElement(property.Value, key, operatorSymbol, value);
-                filteredProperties.Add((property.Name, filteredSubElement));
-            }
+            Console.WriteLine("Failed to read configuration");
+            return;
         }
-        else if (property.Value.ValueKind == JsonValueKind.Array)
-        {
-            var filteredArray = new List<JsonElement>();
-            foreach (var item in property.Value.EnumerateArray())
-            {
-                if (IsConditionMet(item, key, operatorSymbol, value))
-                {
-                    filteredArray.Add(item.Clone());
-                }
-                else
-                {
-                    var filteredSubElement = FilterJsonElement(item, key, operatorSymbol, value);
-                    filteredArray.Add(filteredSubElement);
-                }
-            }
 
-            var array = new JsonElement[filteredArray.Count];
-            filteredArray.CopyTo(array);
+        using var httpClient = new HttpClient();
+        var fisClient = new FisClient(httpClient, config);
+        string env = "uat";
+        string token = await fisClient.GetFisAccessTokenAsync(env);
 
-            var doc = JsonDocument.Parse(JsonSerializer.Serialize(array));
-            filteredProperties.Add((property.Name, doc.RootElement.Clone()));
-        }
-        else
-        {
-            filteredProperties.Add((property.Name, property.Value.Clone()));
-        }
+        var cpStaticDataService = new CpStaticDataService(httpClient, config.Uat.Services["CpStaticData"].BaseUrl, config.Uat.Services["CpStaticData"].Endpoint);
+        string counterpartyName = "exampleCounterparty";
+
+        // Fetch the data without filtering
+        string staticData = await cpStaticDataService.GetFilteredCounterpartyDataAsync(token, counterpartyName);
+        Console.WriteLine($"Static Data for {counterpartyName}:\n{staticData}");
+
+        // Fetch the data with filtering
+        string condition = "lei != NONE";
+        string filteredData = await cpStaticDataService.GetFilteredCounterpartyDataAsync(token, counterpartyName, condition);
+        Console.WriteLine($"Filtered Static Data for {counterpartyName} with condition '{condition}':\n{filteredData}");
     }
-
-    using var stream = new MemoryStream();
-    using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))
-    {
-        writer.WriteStartObject();
-        foreach (var (Name, Value) in filteredProperties)
-        {
-            writer.WritePropertyName(Name);
-            Value.WriteTo(writer);
-        }
-        writer.WriteEndObject();
-    }
-
-    return JsonDocument.Parse(Encoding.UTF8.GetString(stream.ToArray())).RootElement.Clone();
-}
-
-private bool IsConditionMet(JsonElement element, string key, string operatorSymbol, string value)
-{
-    if (element.ValueKind == JsonValueKind.Object)
-    {
-        foreach (var property in element.EnumerateObject())
-        {
-            if (property.NameEquals(key))
-            {
-                return EvaluateCondition(property.Value.GetString(), operatorSymbol, value);
-            }
-            else if (property.Value.ValueKind == JsonValueKind.Object || property.Value.ValueKind == JsonValueKind.Array)
-            {
-                if (IsConditionMet(property.Value, key, operatorSymbol, value))
-                {
-                    return true;
-                }
-            }
-        }
-    }
-    else if (element.ValueKind == JsonValueKind.Array)
-    {
-        foreach (var item in element.EnumerateArray())
-        {
-            if (item.ValueKind == JsonValueKind.Object)
-            {
-                if (IsConditionMet(item, key, operatorSymbol, value))
-                {
-                    return true;
-                }
-            }
-        }
-    }
-
-    return false;
-}
-
-private bool EvaluateCondition(string propertyValue, string operatorSymbol, string value)
-{
-    return operatorSymbol switch
-    {
-        "!=" => propertyValue != value,
-        "=" => propertyValue == value,
-        _ => throw new ArgumentException($"Unsupported operator '{operatorSymbol}'")
-    };
 }
