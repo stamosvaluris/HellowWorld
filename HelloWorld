@@ -1,1 +1,118 @@
 
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.IO.Compression;
+using System.Linq;
+using System.Text.Json;
+using System.Threading.Tasks;
+using System.Xml.Linq;
+using CsvHelper;
+using CsvHelper.Configuration;
+
+namespace FileOperations
+{
+    public static class FileHandler
+    {
+        public static async Task<dynamic> OpenFileAsync(string filePath)
+        {
+            string extension = Path.GetExtension(filePath).ToLower();
+            if (extension == ".zip")
+            {
+                filePath = await ExtractSingleFileFromZipAsync(filePath);
+                extension = Path.GetExtension(filePath).ToLower();
+            }
+
+            return extension switch
+            {
+                ".csv" => await OpenCsvFileAsync(filePath),
+                ".json" => await OpenJsonFileAsync(filePath),
+                ".xml" => await OpenXmlFileAsync(filePath),
+                _ => throw new NotSupportedException("File type not supported."),
+            };
+        }
+
+        private static async Task<string> ExtractSingleFileFromZipAsync(string zipFilePath)
+        {
+            using var archive = ZipFile.OpenRead(zipFilePath);
+            if (archive.Entries.Count != 1)
+                throw new InvalidOperationException("Zip archive must contain exactly one file.");
+
+            var entry = archive.Entries[0];
+            string tempFilePath = Path.Combine(Path.GetTempPath(), entry.Name);
+            await Task.Run(() => entry.ExtractToFile(tempFilePath, true));
+            return tempFilePath;
+        }
+
+        private static async Task<List<Dictionary<string, string>>> OpenCsvFileAsync(string filePath)
+        {
+            using var reader = new StreamReader(filePath);
+            using var csv = new CsvReader(reader, new CsvConfiguration(System.Globalization.CultureInfo.InvariantCulture));
+            var records = new List<dynamic>();
+            await foreach (var record in csv.GetRecordsAsync<dynamic>())
+            {
+                records.Add(record);
+            }
+            return records.Select(record => (IDictionary<string, object>)record).Select(dict => dict.ToDictionary(kvp => kvp.Key, kvp => kvp.Value.ToString())).ToList();
+        }
+
+        private static async Task<dynamic> OpenJsonFileAsync(string filePath)
+        {
+            using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, useAsync: true);
+            return await JsonSerializer.DeserializeAsync<dynamic>(stream, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        }
+
+        private static async Task<XElement> OpenXmlFileAsync(string filePath)
+        {
+            using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, useAsync: true);
+            return await Task.Run(() => XElement.Load(stream));
+        }
+
+        public static async Task SaveFileAsync(string originalFilePath, dynamic data, string newFileName)
+        {
+            string directory = Path.GetDirectoryName(originalFilePath);
+            string extension = Path.GetExtension(originalFilePath).ToLower();
+            if (extension == ".zip")
+            {
+                originalFilePath = await ExtractSingleFileFromZipAsync(originalFilePath);
+                directory = Path.GetDirectoryName(originalFilePath);
+                extension = Path.GetExtension(originalFilePath).ToLower();
+            }
+
+            string newFilePath = Path.Combine(directory, $"{newFileName}{extension}");
+
+            switch (extension)
+            {
+                case ".csv":
+                    await SaveCsvFileAsync(newFilePath, data);
+                    break;
+                case ".json":
+                    await SaveJsonFileAsync(newFilePath, data);
+                    break;
+                case ".xml":
+                    await SaveXmlFileAsync(newFilePath, data);
+                    break;
+                default:
+                    throw new NotSupportedException("File type not supported.");
+            }
+        }
+
+        private static async Task SaveCsvFileAsync(string filePath, List<Dictionary<string, string>> data)
+        {
+            using var writer = new StreamWriter(filePath);
+            using var csv = new CsvWriter(writer, new CsvConfiguration(System.Globalization.CultureInfo.InvariantCulture));
+            await csv.WriteRecordsAsync(data);
+        }
+
+        private static async Task SaveJsonFileAsync(string filePath, dynamic data)
+        {
+            using var stream = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None, 4096, useAsync: true);
+            await JsonSerializer.SerializeAsync(stream, data, new JsonSerializerOptions { WriteIndented = true });
+        }
+
+        private static async Task SaveXmlFileAsync(string filePath, XElement data)
+        {
+            await Task.Run(() => data.Save(filePath));
+        }
+    }
+}
