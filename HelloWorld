@@ -1,118 +1,217 @@
-
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.IO.Compression;
-using System.Linq;
+using System.Net.Http;
+using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
-using System.Xml.Linq;
-using CsvHelper;
-using CsvHelper.Configuration;
 
-namespace FileOperations
+namespace FIS_Client.Services
 {
-    public static class FileHandler
+    public class CpStaticDataService
     {
-        public static async Task<dynamic> OpenFileAsync(string filePath)
+        private readonly HttpClient _httpClient;
+        private readonly string _baseUrl;
+        private readonly string _endpoint;
+
+        public CpStaticDataService(HttpClient httpClient, string baseUrl, string endpoint)
         {
-            string extension = Path.GetExtension(filePath).ToLower();
-            if (extension == ".zip")
+            _httpClient = httpClient;
+            _baseUrl = baseUrl;
+            _endpoint = endpoint;
+        }
+
+        public async Task<string> GetCounterpartyStaticDataAsync(string token, string counterpartyName)
+        {
+            var url = $"{_baseUrl}{_endpoint}{counterpartyName}";
+            _httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+            var response = await _httpClient.GetAsync(url);
+            response.EnsureSuccessStatusCode();
+            return await response.Content.ReadAsStringAsync();
+        }
+
+        public async Task<string> GetFilteredCounterpartyDataAsync(string token, string counterpartyName, string condition = null)
+        {
+            var jsonString = await GetCounterpartyStaticDataAsync(token, counterpartyName);
+            using var jsonDoc = JsonDocument.Parse(jsonString);
+            var root = jsonDoc.RootElement.Clone();
+
+            if (condition == null)
             {
-                filePath = await ExtractSingleFileFromZipAsync(filePath);
-                extension = Path.GetExtension(filePath).ToLower();
+                return DecodeUnicodeSequences(jsonString);
             }
 
-            return extension switch
+            string key;
+            string operatorSymbol;
+            string value;
+
+            if (condition.Contains("!="))
             {
-                ".csv" => await OpenCsvFileAsync(filePath),
-                ".json" => await OpenJsonFileAsync(filePath),
-                ".xml" => await OpenXmlFileAsync(filePath),
-                _ => throw new NotSupportedException("File type not supported."),
+                var conditionParts = condition.Split(new[] { "!=" }, StringSplitOptions.None);
+                if (conditionParts.Length != 2)
+                {
+                    throw new ArgumentException("Invalid condition format. Use 'key != value'.");
+                }
+                key = conditionParts[0].Trim();
+                operatorSymbol = "!=";
+                value = conditionParts[1].Trim();
+            }
+            else if (condition.Contains("="))
+            {
+                var conditionParts = condition.Split(new[] { '=' }, StringSplitOptions.None);
+                if (conditionParts.Length != 2)
+                {
+                    throw new ArgumentException("Invalid condition format. Use 'key = value'.");
+                }
+                key = conditionParts[0].Trim();
+                operatorSymbol = "=";
+                value = conditionParts[1].Trim();
+            }
+            else
+            {
+                throw new ArgumentException("Invalid condition format. Use 'key operator value'.");
+            }
+
+            JsonElement? filteredRoot = null;
+
+            if (root.ValueKind == JsonValueKind.Object)
+            {
+                filteredRoot = FilterSingleCounterparty(root, key, operatorSymbol, value);
+            }
+            else if (root.ValueKind == JsonValueKind.Array)
+            {
+                filteredRoot = FilterMultipleCounterparties(root, key, operatorSymbol, value);
+            }
+            else
+            {
+                throw new InvalidOperationException("Unexpected JSON structure");
+            }
+
+            if (filteredRoot == null)
+            {
+                return null;
+            }
+
+            using var stream = new MemoryStream();
+            using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))
+            {
+                if (filteredRoot.Value.ValueKind == JsonValueKind.Object)
+                {
+                    writer.WriteStartObject();
+                    foreach (var property in filteredRoot.Value.EnumerateObject())
+                    {
+                        property.WriteTo(writer);
+                    }
+                    writer.WriteEndObject();
+                }
+                else if (filteredRoot.Value.ValueKind == JsonValueKind.Array)
+                {
+                    writer.WriteStartArray();
+                    foreach (var item in filteredRoot.Value.EnumerateArray())
+                    {
+                        item.WriteTo(writer);
+                    }
+                    writer.WriteEndArray();
+                }
+            }
+
+            return DecodeUnicodeSequences(Encoding.UTF8.GetString(stream.ToArray()));
+        }
+
+        private JsonElement? FilterSingleCounterparty(JsonElement element, string key, string operatorSymbol, string value)
+        {
+            if (IsConditionMet(element, key, operatorSymbol, value))
+            {
+                return element;
+            }
+            return null;
+        }
+
+        private JsonElement FilterMultipleCounterparties(JsonElement element, string key, string operatorSymbol, string value)
+        {
+            var filteredArray = new List<JsonElement>();
+
+            foreach (var item in element.EnumerateArray())
+            {
+                if (item.ValueKind == JsonValueKind.Object && IsConditionMet(item, key, operatorSymbol, value))
+                {
+                    filteredArray.Add(item.Clone());
+                }
+            }
+
+            var array = new JsonElement[filteredArray.Count];
+            filteredArray.CopyTo(array);
+
+            return JsonDocument.Parse(JsonSerializer.Serialize(array)).RootElement.Clone();
+        }
+
+        private bool IsConditionMet(JsonElement element, string key, string operatorSymbol, string value)
+        {
+            if (element.ValueKind == JsonValueKind.Object)
+            {
+                foreach (var property in element.EnumerateObject())
+                {
+                    if (property.NameEquals(key))
+                    {
+                        return EvaluateCondition(property.Value.GetString(), operatorSymbol, value);
+                    }
+                    else if (property.Value.ValueKind == JsonValueKind.Object || property.Value.ValueKind == JsonValueKind.Array)
+                    {
+                        if (IsConditionMet(property.Value, key, operatorSymbol, value))
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+            else if (element.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var item in element.EnumerateArray())
+                {
+                    if (item.ValueKind == JsonValueKind.Object)
+                    {
+                        if (IsConditionMet(item, key, operatorSymbol, value))
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        private bool EvaluateCondition(string propertyValue, string operatorSymbol, string value)
+        {
+            return operatorSymbol switch
+            {
+                "!=" => propertyValue != value,
+                "=" => propertyValue == value,
+                _ => throw new ArgumentException($"Unsupported operator '{operatorSymbol}'")
             };
         }
 
-        private static async Task<string> ExtractSingleFileFromZipAsync(string zipFilePath)
+        private string DecodeUnicodeSequences(string input)
         {
-            using var archive = ZipFile.OpenRead(zipFilePath);
-            if (archive.Entries.Count != 1)
-                throw new InvalidOperationException("Zip archive must contain exactly one file.");
+            var stringBuilder = new StringBuilder(input.Length);
+            int length = input.Length;
 
-            var entry = archive.Entries[0];
-            string tempFilePath = Path.Combine(Path.GetTempPath(), entry.Name);
-            await Task.Run(() => entry.ExtractToFile(tempFilePath, true));
-            return tempFilePath;
-        }
-
-        private static async Task<List<Dictionary<string, string>>> OpenCsvFileAsync(string filePath)
-        {
-            using var reader = new StreamReader(filePath);
-            using var csv = new CsvReader(reader, new CsvConfiguration(System.Globalization.CultureInfo.InvariantCulture));
-            var records = new List<dynamic>();
-            await foreach (var record in csv.GetRecordsAsync<dynamic>())
+            for (int i = 0; i < length; i++)
             {
-                records.Add(record);
-            }
-            return records.Select(record => (IDictionary<string, object>)record).Select(dict => dict.ToDictionary(kvp => kvp.Key, kvp => kvp.Value.ToString())).ToList();
-        }
-
-        private static async Task<dynamic> OpenJsonFileAsync(string filePath)
-        {
-            using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, useAsync: true);
-            return await JsonSerializer.DeserializeAsync<dynamic>(stream, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-        }
-
-        private static async Task<XElement> OpenXmlFileAsync(string filePath)
-        {
-            using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, useAsync: true);
-            return await Task.Run(() => XElement.Load(stream));
-        }
-
-        public static async Task SaveFileAsync(string originalFilePath, dynamic data, string newFileName)
-        {
-            string directory = Path.GetDirectoryName(originalFilePath);
-            string extension = Path.GetExtension(originalFilePath).ToLower();
-            if (extension == ".zip")
-            {
-                originalFilePath = await ExtractSingleFileFromZipAsync(originalFilePath);
-                directory = Path.GetDirectoryName(originalFilePath);
-                extension = Path.GetExtension(originalFilePath).ToLower();
+                if (input[i] == '\\' && input[i + 1] == 'u')
+                {
+                    string unicodeSequence = input.Substring(i, 6);
+                    string decodedChar = ((char)Convert.ToInt32(unicodeSequence.Substring(2), 16)).ToString();
+                    stringBuilder.Append(decodedChar);
+                    i += 5; // Skip the next 5 characters as they are part of the \uXXXX sequence
+                }
+                else
+                {
+                    stringBuilder.Append(input[i]);
+                }
             }
 
-            string newFilePath = Path.Combine(directory, $"{newFileName}{extension}");
-
-            switch (extension)
-            {
-                case ".csv":
-                    await SaveCsvFileAsync(newFilePath, data);
-                    break;
-                case ".json":
-                    await SaveJsonFileAsync(newFilePath, data);
-                    break;
-                case ".xml":
-                    await SaveXmlFileAsync(newFilePath, data);
-                    break;
-                default:
-                    throw new NotSupportedException("File type not supported.");
-            }
-        }
-
-        private static async Task SaveCsvFileAsync(string filePath, List<Dictionary<string, string>> data)
-        {
-            using var writer = new StreamWriter(filePath);
-            using var csv = new CsvWriter(writer, new CsvConfiguration(System.Globalization.CultureInfo.InvariantCulture));
-            await csv.WriteRecordsAsync(data);
-        }
-
-        private static async Task SaveJsonFileAsync(string filePath, dynamic data)
-        {
-            using var stream = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None, 4096, useAsync: true);
-            await JsonSerializer.SerializeAsync(stream, data, new JsonSerializerOptions { WriteIndented = true });
-        }
-
-        private static async Task SaveXmlFileAsync(string filePath, XElement data)
-        {
-            await Task.Run(() => data.Save(filePath));
+            return stringBuilder.ToString();
         }
     }
 }
