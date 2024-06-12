@@ -1,10 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Net.Http;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
-using System.Net.Http;
 
 namespace FIS_Client.Services
 {
@@ -21,23 +21,24 @@ namespace FIS_Client.Services
             _endpoint = endpoint;
         }
 
-        public async Task<string> GetCounterpartyStaticDataAsync(string token, string counterpartyName)
+        public async Task<JsonDocument> GetCounterpartyStaticDataAsync(string token, string counterpartyName)
         {
             var url = $"{_baseUrl}{_endpoint}{counterpartyName}";
             _httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
             var response = await _httpClient.GetAsync(url);
             response.EnsureSuccessStatusCode();
-            return await response.Content.ReadAsStringAsync();
+            var jsonString = await response.Content.ReadAsStringAsync();
+            return JsonDocument.Parse(jsonString);
         }
 
-        public async Task<string> GetCounterpartyStaticDataWithConditionAsync(string token, string counterpartyName, string condition)
+        public async Task<string> GetConditionalCounterpartyStaticDataAsync(string token, string counterpartyName, string condition)
         {
-            var jsonString = await GetCounterpartyStaticDataAsync(token, counterpartyName);
-            var jsonElement = JsonDocument.Parse(jsonString).RootElement;
+            var jsonDocument = await GetCounterpartyStaticDataAsync(token, counterpartyName);
+            var jsonElement = jsonDocument.RootElement;
 
             if (string.IsNullOrEmpty(condition))
             {
-                return jsonString;
+                return jsonElement.GetRawText();
             }
 
             var filteredElements = new Dictionary<string, JsonElement>();
