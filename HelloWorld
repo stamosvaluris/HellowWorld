@@ -41,7 +41,6 @@ namespace FIS_Client.Services
                 return jsonDocument;
             }
 
-            var filteredElements = new Dictionary<string, JsonElement>();
             var conditionParts = ParseCondition(condition);
 
             if (conditionParts == null || conditionParts.Length != 3)
@@ -53,25 +52,15 @@ namespace FIS_Client.Services
             var operatorSymbol = conditionParts[1];
             var value = conditionParts[2];
 
-            FilterJsonElements(jsonElement, key, operatorSymbol, value, filteredElements);
-
-            using var stream = new MemoryStream();
-            using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))
+            if (CheckConditionInJsonElement(jsonElement, key, operatorSymbol, value))
             {
-                writer.WriteStartObject();
-                foreach (var kvp in filteredElements)
-                {
-                    writer.WritePropertyName(kvp.Key);
-                    kvp.Value.WriteTo(writer);
-                }
-                writer.WriteEndObject();
+                return jsonDocument;
             }
 
-            stream.Position = 0;
-            return JsonDocument.Parse(stream);
+            return null;
         }
 
-        private void FilterJsonElements(JsonElement element, string key, string operatorSymbol, string value, Dictionary<string, JsonElement> filteredElements)
+        private bool CheckConditionInJsonElement(JsonElement element, string key, string operatorSymbol, string value)
         {
             if (element.ValueKind == JsonValueKind.Object)
             {
@@ -79,11 +68,14 @@ namespace FIS_Client.Services
                 {
                     if (property.NameEquals(key) && IsConditionMet(property.Value, operatorSymbol, value))
                     {
-                        filteredElements[property.Name] = property.Value;
+                        return true;
                     }
                     else if (property.Value.ValueKind == JsonValueKind.Object || property.Value.ValueKind == JsonValueKind.Array)
                     {
-                        FilterJsonElements(property.Value, key, operatorSymbol, value, filteredElements);
+                        if (CheckConditionInJsonElement(property.Value, key, operatorSymbol, value))
+                        {
+                            return true;
+                        }
                     }
                 }
             }
@@ -93,10 +85,14 @@ namespace FIS_Client.Services
                 {
                     if (item.ValueKind == JsonValueKind.Object)
                     {
-                        FilterJsonElements(item, key, operatorSymbol, value, filteredElements);
+                        if (CheckConditionInJsonElement(item, key, operatorSymbol, value))
+                        {
+                            return true;
+                        }
                     }
                 }
             }
+            return false;
         }
 
         private bool IsConditionMet(JsonElement element, string operatorSymbol, string value)
