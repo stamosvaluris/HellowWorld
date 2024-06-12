@@ -193,39 +193,42 @@ namespace FIS_Client.Services
             return Encoding.UTF8.GetString(stream.ToArray());
         }
 
-        public List<string> ExtractValuesByKey(JsonDocument jsonDocument, string key)
+        public async Task<List<string>> ExtractValuesByKeyAsync(JsonDocument jsonDocument, string key)
         {
             var values = new List<string>();
-            ExtractValuesByKeyRecursive(jsonDocument.RootElement, key, values);
+            await ExtractValuesByKeyRecursiveAsync(jsonDocument.RootElement, key, values);
             return values;
         }
 
-        private void ExtractValuesByKeyRecursive(JsonElement element, string key, List<string> values)
+        private Task ExtractValuesByKeyRecursiveAsync(JsonElement element, string key, List<string> values)
         {
-            if (element.ValueKind == JsonValueKind.Object)
+            return Task.Run(() =>
             {
-                foreach (var property in element.EnumerateObject())
+                if (element.ValueKind == JsonValueKind.Object)
                 {
-                    if (property.NameEquals(key))
+                    foreach (var property in element.EnumerateObject())
                     {
-                        values.Add(property.Value.ToString());
-                    }
-                    else if (property.Value.ValueKind == JsonValueKind.Object || property.Value.ValueKind == JsonValueKind.Array)
-                    {
-                        ExtractValuesByKeyRecursive(property.Value, key, values);
+                        if (property.NameEquals(key))
+                        {
+                            values.Add(property.Value.ToString());
+                        }
+                        else if (property.Value.ValueKind == JsonValueKind.Object || property.Value.ValueKind == JsonValueKind.Array)
+                        {
+                            ExtractValuesByKeyRecursiveAsync(property.Value, key, values).Wait();
+                        }
                     }
                 }
-            }
-            else if (element.ValueKind == JsonValueKind.Array)
-            {
-                foreach (var item in element.EnumerateArray())
+                else if (element.ValueKind == JsonValueKind.Array)
                 {
-                    if (item.ValueKind == JsonValueKind.Object || item.ValueKind == JsonValueKind.Array)
+                    foreach (var item in element.EnumerateArray())
                     {
-                        ExtractValuesByKeyRecursive(item, key, values);
+                        if (item.ValueKind == JsonValueKind.Object || item.ValueKind == JsonValueKind.Array)
+                        {
+                            ExtractValuesByKeyRecursiveAsync(item, key, values).Wait();
+                        }
                     }
                 }
-            }
+            });
         }
     }
 }
