@@ -31,22 +31,22 @@ namespace FIS_Client.Services
             return JsonDocument.Parse(jsonString);
         }
 
-        public async Task<JsonDocument> GetConditionalCounterpartyStaticDataAsync(string token, string counterpartyName, string condition)
+        public async Task<string> GetConditionalCounterpartyStaticDataAsync(string token, string counterpartyName, string condition)
         {
             var jsonDocument = await GetCounterpartyStaticDataAsync(token, counterpartyName);
             var jsonElement = jsonDocument.RootElement;
 
             if (string.IsNullOrEmpty(condition))
             {
-                return jsonDocument;
+                return jsonElement.GetRawText();
             }
 
             var filteredElements = new Dictionary<string, JsonElement>();
-            var conditionParts = SplitCondition(condition);
+            var conditionParts = ParseCondition(condition);
 
-            if (conditionParts.Length != 3)
+            if (conditionParts == null || conditionParts.Length != 3)
             {
-                throw new ArgumentException("Invalid key-value format. Use 'key _IS_ value' or 'key _ISNOT_ value'");
+                throw new ArgumentException("Invalid key-value format. Use 'key operator value'");
             }
 
             var key = conditionParts[0];
@@ -55,27 +55,19 @@ namespace FIS_Client.Services
 
             FilterJsonElements(jsonElement, key, operatorSymbol, value, filteredElements);
 
-            var filteredJson = ConvertToFilteredJsonDocument(filteredElements);
-            return filteredJson;
-        }
+            using var stream = new MemoryStream();
+            using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))
+            {
+                writer.WriteStartObject();
+                foreach (var kvp in filteredElements)
+                {
+                    writer.WritePropertyName(kvp.Key);
+                    kvp.Value.WriteTo(writer);
+                }
+                writer.WriteEndObject();
+            }
 
-        private string[] SplitCondition(string condition)
-        {
-            string[] parts;
-            if (condition.Contains("_IS_"))
-            {
-                parts = condition.Split(new[] { "_IS_" }, 2, StringSplitOptions.None);
-                return new string[] { parts[0].Trim(), "_IS_", parts[1].Trim() };
-            }
-            else if (condition.Contains("_ISNOT_"))
-            {
-                parts = condition.Split(new[] { "_ISNOT_" }, 2, StringSplitOptions.None);
-                return new string[] { parts[0].Trim(), "_ISNOT_", parts[1].Trim() };
-            }
-            else
-            {
-                throw new ArgumentException("Invalid key-value format. Use 'key _IS_ value' or 'key _ISNOT_ value'");
-            }
+            return Encoding.UTF8.GetString(stream.ToArray());
         }
 
         private void FilterJsonElements(JsonElement element, string key, string operatorSymbol, string value, Dictionary<string, JsonElement> filteredElements)
@@ -114,56 +106,82 @@ namespace FIS_Client.Services
                     var elementValue = element.GetString();
                     return operatorSymbol switch
                     {
-                        "_IS_" => elementValue == value,
-                        "_ISNOT_" => elementValue != value,
+                        "==" => elementValue == value,
+                        "!=" => elementValue != value,
                         _ => throw new ArgumentException($"Unsupported operator '{operatorSymbol}'")
                     };
+                case JsonValueKind.Number:
+                    if (double.TryParse(value, out var doubleValue))
+                    {
+                        var elementNumber = element.GetDouble();
+                        return operatorSymbol switch
+                        {
+                            "==" => elementNumber == doubleValue,
+                            "!=" => elementNumber != doubleValue,
+                            ">" => elementNumber > doubleValue,
+                            "<" => elementNumber < doubleValue,
+                            ">=" => elementNumber >= doubleValue,
+                            "<=" => elementNumber <= doubleValue,
+                            _ => throw new ArgumentException($"Unsupported operator '{operatorSymbol}'")
+                        };
+                    }
+                    throw new ArgumentException($"Value '{value}' is not a valid number");
+                case JsonValueKind.Boolean:
+                    if (bool.TryParse(value, out var boolValue))
+                    {
+                        var elementBool = element.GetBoolean();
+                        return operatorSymbol switch
+                        {
+                            "==" => elementBool == boolValue,
+                            "!=" => elementBool != boolValue,
+                            _ => throw new ArgumentException($"Unsupported operator '{operatorSymbol}'")
+                        };
+                    }
+                    throw new ArgumentException($"Value '{value}' is not a valid boolean");
                 default:
                     throw new ArgumentException("Unsupported value type for condition");
             }
         }
 
-        private JsonDocument ConvertToFilteredJsonDocument(Dictionary<string, JsonElement> filteredElements)
+        private string[] ParseCondition(string condition)
         {
-            using var stream = new MemoryStream();
-            using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))
+            // Find the operator position
+            int operatorPos = condition.IndexOf("==");
+            string operatorSymbol = "==";
+            if (operatorPos == -1)
             {
-                writer.WriteStartObject();
-                foreach (var kvp in filteredElements)
-                {
-                    writer.WritePropertyName(kvp.Key);
-                    kvp.Value.WriteTo(writer);
-                }
-                writer.WriteEndObject();
+                operatorPos = condition.IndexOf("!=");
+                operatorSymbol = "!=";
             }
-            stream.Position = 0;
-            return JsonDocument.Parse(stream);
-        }
+            if (operatorPos == -1)
+            {
+                operatorPos = condition.IndexOf(">");
+                operatorSymbol = ">";
+            }
+            if (operatorPos == -1)
+            {
+                operatorPos = condition.IndexOf("<");
+                operatorSymbol = "<";
+            }
+            if (operatorPos == -1)
+            {
+                operatorPos = condition.IndexOf(">=");
+                operatorSymbol = ">=";
+            }
+            if (operatorPos == -1)
+            {
+                operatorPos = condition.IndexOf("<=");
+                operatorSymbol = "<=";
+            }
 
-        public string PrintJson(JsonElement jsonElement)
-        {
-            using var stream = new MemoryStream();
-            using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))
+            if (operatorPos == -1)
             {
-                jsonElement.WriteTo(writer);
+                return null;
             }
-            return Encoding.UTF8.GetString(stream.ToArray());
-        }
 
-        public string PrintJson(Dictionary<string, JsonElement> filteredElements)
-        {
-            using var stream = new MemoryStream();
-            using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))
-            {
-                writer.WriteStartObject();
-                foreach (var kvp in filteredElements)
-                {
-                    writer.WritePropertyName(kvp.Key);
-                    kvp.Value.WriteTo(writer);
-                }
-                writer.WriteEndObject();
-            }
-            return Encoding.UTF8.GetString(stream.ToArray());
+            var key = condition.Substring(0, operatorPos).Trim();
+            var value = condition.Substring(operatorPos + operatorSymbol.Length).Trim();
+            return new string[] { key, operatorSymbol, value };
         }
     }
 }
