@@ -61,13 +61,16 @@ namespace FIS_Client.Services
 
         private string[] SplitCondition(string condition)
         {
+            string[] parts;
             if (condition.Contains("_IS_"))
             {
-                return condition.Split(new[] { "_IS_" }, StringSplitOptions.None);
+                parts = condition.Split(new[] { "_IS_" }, 2, StringSplitOptions.None);
+                return new string[] { parts[0].Trim(), "_IS_", parts[1].Trim() };
             }
             else if (condition.Contains("_ISNOT_"))
             {
-                return condition.Split(new[] { "_ISNOT_" }, StringSplitOptions.None);
+                parts = condition.Split(new[] { "_ISNOT_" }, 2, StringSplitOptions.None);
+                return new string[] { parts[0].Trim(), "_ISNOT_", parts[1].Trim() };
             }
             else
             {
