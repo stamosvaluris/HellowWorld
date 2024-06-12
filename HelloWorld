@@ -38,11 +38,11 @@ namespace FIS_Client.Services
 
             if (string.IsNullOrEmpty(condition))
             {
-                return jsonElement.GetRawText();
+                return PrintJson(jsonElement);
             }
 
             var filteredElements = new Dictionary<string, JsonElement>();
-            var conditionParts = condition.Split(' ', 3);
+            var conditionParts = SplitCondition(condition);
 
             if (conditionParts.Length != 3)
             {
@@ -55,19 +55,18 @@ namespace FIS_Client.Services
 
             FilterJsonElements(jsonElement, key, operatorSymbol, value, filteredElements);
 
-            using var stream = new MemoryStream();
-            using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))
+            return PrintJson(filteredElements);
+        }
+
+        private string[] SplitCondition(string condition)
+        {
+            var parts = condition.Split(new[] { ' ' }, 3);
+            if (parts.Length == 3)
             {
-                writer.WriteStartObject();
-                foreach (var kvp in filteredElements)
-                {
-                    writer.WritePropertyName(kvp.Key);
-                    kvp.Value.WriteTo(writer);
-                }
-                writer.WriteEndObject();
+                return parts;
             }
 
-            return Encoding.UTF8.GetString(stream.ToArray());
+            throw new ArgumentException("Invalid key-value format. Use 'key operator value'");
         }
 
         private void FilterJsonElements(JsonElement element, string key, string operatorSymbol, string value, Dictionary<string, JsonElement> filteredElements)
@@ -113,6 +112,32 @@ namespace FIS_Client.Services
                 default:
                     throw new ArgumentException("Unsupported value type for condition");
             }
+        }
+
+        private string PrintJson(JsonElement jsonElement)
+        {
+            using var stream = new MemoryStream();
+            using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))
+            {
+                jsonElement.WriteTo(writer);
+            }
+            return Encoding.UTF8.GetString(stream.ToArray());
+        }
+
+        private string PrintJson(Dictionary<string, JsonElement> filteredElements)
+        {
+            using var stream = new MemoryStream();
+            using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))
+            {
+                writer.WriteStartObject();
+                foreach (var kvp in filteredElements)
+                {
+                    writer.WritePropertyName(kvp.Key);
+                    kvp.Value.WriteTo(writer);
+                }
+                writer.WriteEndObject();
+            }
+            return Encoding.UTF8.GetString(stream.ToArray());
         }
     }
 }
