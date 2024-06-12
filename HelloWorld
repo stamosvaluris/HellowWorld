@@ -31,14 +31,14 @@ namespace FIS_Client.Services
             return JsonDocument.Parse(jsonString);
         }
 
-        public async Task<string> GetConditionalCounterpartyStaticDataAsync(string token, string counterpartyName, string condition)
+        public async Task<JsonDocument> GetConditionalCounterpartyStaticDataAsync(string token, string counterpartyName, string condition)
         {
             var jsonDocument = await GetCounterpartyStaticDataAsync(token, counterpartyName);
             var jsonElement = jsonDocument.RootElement;
 
             if (string.IsNullOrEmpty(condition))
             {
-                return jsonElement.GetRawText();
+                return jsonDocument;
             }
 
             var filteredElements = new Dictionary<string, JsonElement>();
@@ -67,7 +67,8 @@ namespace FIS_Client.Services
                 writer.WriteEndObject();
             }
 
-            return Encoding.UTF8.GetString(stream.ToArray());
+            stream.Position = 0;
+            return JsonDocument.Parse(stream);
         }
 
         private void FilterJsonElements(JsonElement element, string key, string operatorSymbol, string value, Dictionary<string, JsonElement> filteredElements)
