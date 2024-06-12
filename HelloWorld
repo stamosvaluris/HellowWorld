@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Net.Http;
-using System.Text.Json;
 using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 
 namespace FIS_Client.Services
@@ -20,45 +22,57 @@ namespace FIS_Client.Services
             _endpoint = endpoint;
         }
 
-        public async Task<string> GetCounterpartyStaticDataAsync(string token, string counterpartyName)
+        public async Task<JsonDocument> GetCounterpartyStaticDataAsync(string token, string counterpartyName)
         {
-            var url = $"{_baseUrl}{_endpoint}{counterpartyName}";
+            var url = string.IsNullOrWhiteSpace(counterpartyName) ? $"{_baseUrl}/{_endpoint}" : $"{_baseUrl}/{_endpoint}/{counterpartyName}";
             _httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
             var response = await _httpClient.GetAsync(url);
             response.EnsureSuccessStatusCode();
-            return await response.Content.ReadAsStringAsync();
+            var jsonString = await response.Content.ReadAsStringAsync();
+            return JsonDocument.Parse(jsonString);
         }
 
-        public async Task<string> GetFilteredCounterpartyDataAsync(string token, string counterpartyName, string condition)
+        public async Task<string> GetFilteredCounterpartyDataAsync(string token, string counterpartyName, string condition = null)
         {
-            string jsonResponse = await GetCounterpartyStaticDataAsync(token, counterpartyName);
-            JsonDocument document = JsonDocument.Parse(jsonResponse);
-            var root = document.RootElement;
+            using var jsonDoc = await GetCounterpartyStaticDataAsync(token, counterpartyName);
+            var root = jsonDoc.RootElement;
 
-            List<JsonElement> filteredElements = new List<JsonElement>();
-
-            if (root.ValueKind == JsonValueKind.Object)
+            if (condition == null)
             {
-                if (IsConditionMet(root, condition))
-                {
-                    filteredElements.Add(root);
-                }
+                return JsonElementToString(root);
             }
-            else if (root.ValueKind == JsonValueKind.Array)
+
+            var conditionParts = condition.Split(' ');
+            if (conditionParts.Length != 3)
+            {
+                throw new ArgumentException("Invalid condition format. Use 'key operator value'.");
+            }
+
+            string key = conditionParts[0];
+            string operatorSymbol = conditionParts[1];
+            string value = conditionParts[2];
+
+            var filteredElements = new List<JsonElement>();
+
+            if (root.ValueKind == JsonValueKind.Array)
             {
                 foreach (var element in root.EnumerateArray())
                 {
-                    if (IsConditionMet(element, condition))
+                    if (IsConditionMet(element, key, operatorSymbol, value))
                     {
                         filteredElements.Add(element);
                     }
                 }
             }
+            else if (root.ValueKind == JsonValueKind.Object && IsConditionMet(root, key, operatorSymbol, value))
+            {
+                filteredElements.Add(root);
+            }
 
             using var stream = new MemoryStream();
             using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))
             {
-                if (filteredElements.Count == 1 && filteredElements[0].ValueKind == JsonValueKind.Object)
+                if (filteredElements.Count == 1)
                 {
                     filteredElements[0].WriteTo(writer);
                 }
@@ -76,41 +90,6 @@ namespace FIS_Client.Services
             return Encoding.UTF8.GetString(stream.ToArray());
         }
 
-        private bool IsConditionMet(JsonElement element, string condition)
-        {
-            string[] conditionParts;
-            string key, operatorSymbol, value;
-
-            if (condition.Contains("!="))
-            {
-                conditionParts = condition.Split(new[] { "!=" }, StringSplitOptions.None);
-                if (conditionParts.Length != 2)
-                {
-                    throw new ArgumentException("Invalid condition format. Use 'key != value'.");
-                }
-                key = conditionParts[0].Trim();
-                operatorSymbol = "!=";
-                value = conditionParts[1].Trim();
-            }
-            else if (condition.Contains("="))
-            {
-                conditionParts = condition.Split(new[] { "=" }, StringSplitOptions.None);
-                if (conditionParts.Length != 2)
-                {
-                    throw new ArgumentException("Invalid condition format. Use 'key = value'.");
-                }
-                key = conditionParts[0].Trim();
-                operatorSymbol = "=";
-                value = conditionParts[1].Trim();
-            }
-            else
-            {
-                throw new ArgumentException("Invalid key-value format. Use 'key operator value'");
-            }
-
-            return IsConditionMet(element, key, operatorSymbol, value);
-        }
-
         private bool IsConditionMet(JsonElement element, string key, string operatorSymbol, string value)
         {
             if (element.ValueKind == JsonValueKind.Object)
@@ -119,17 +98,7 @@ namespace FIS_Client.Services
                 {
                     if (property.NameEquals(key))
                     {
-                        if (property.Value.ValueKind == JsonValueKind.String)
-                        {
-                            return EvaluateCondition(property.Value.GetString(), operatorSymbol, value);
-                        }
-                        else if (property.Value.ValueKind == JsonValueKind.Object || property.Value.ValueKind == JsonValueKind.Array)
-                        {
-                            if (IsConditionMet(property.Value, key, operatorSymbol, value))
-                            {
-                                return true;
-                            }
-                        }
+                        return EvaluateCondition(property.Value.GetString(), operatorSymbol, value);
                     }
                     else if (property.Value.ValueKind == JsonValueKind.Object || property.Value.ValueKind == JsonValueKind.Array)
                     {
@@ -144,7 +113,7 @@ namespace FIS_Client.Services
             {
                 foreach (var item in element.EnumerateArray())
                 {
-                    if (item.ValueKind == JsonValueKind.Object || item.ValueKind == JsonValueKind.Array)
+                    if (item.ValueKind == JsonValueKind.Object)
                     {
                         if (IsConditionMet(item, key, operatorSymbol, value))
                         {
@@ -153,17 +122,33 @@ namespace FIS_Client.Services
                     }
                 }
             }
+
             return false;
         }
 
-        private bool EvaluateCondition(string actualValue, string operatorSymbol, string expectedValue)
+        private bool EvaluateCondition(string propertyValue, string operatorSymbol, string value)
         {
             return operatorSymbol switch
             {
-                "=" => actualValue == expectedValue,
-                "!=" => actualValue != expectedValue,
-                _ => throw new ArgumentException("Invalid operator. Use '=' or '!='."),
+                "!=" => propertyValue != value,
+                "=" => propertyValue == value,
+                _ => throw new ArgumentException($"Unsupported operator '{operatorSymbol}'")
             };
+        }
+
+        private string JsonElementToString(JsonElement element)
+        {
+            using var stream = new MemoryStream();
+            using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))
+            {
+                element.WriteTo(writer);
+            }
+            return Encoding.UTF8.GetString(stream.ToArray());
+        }
+
+        public string PrintJson(JsonElement element)
+        {
+            return JsonElementToString(element);
         }
     }
 }
