@@ -31,14 +31,14 @@ namespace FIS_Client.Services
             return JsonDocument.Parse(jsonString);
         }
 
-        public async Task<string> GetConditionalCounterpartyStaticDataAsync(string token, string counterpartyName, string condition)
+        public async Task<JsonDocument> GetConditionalCounterpartyStaticDataAsync(string token, string counterpartyName, string condition)
         {
             var jsonDocument = await GetCounterpartyStaticDataAsync(token, counterpartyName);
             var jsonElement = jsonDocument.RootElement;
 
             if (string.IsNullOrEmpty(condition))
             {
-                return PrintJson(jsonElement);
+                return jsonDocument;
             }
 
             var filteredElements = new Dictionary<string, JsonElement>();
@@ -55,7 +55,8 @@ namespace FIS_Client.Services
 
             FilterJsonElements(jsonElement, key, operatorSymbol, value, filteredElements);
 
-            return PrintJson(filteredElements);
+            var filteredJson = ConvertToFilteredJsonDocument(filteredElements);
+            return filteredJson;
         }
 
         private string[] SplitCondition(string condition)
@@ -114,7 +115,24 @@ namespace FIS_Client.Services
             }
         }
 
-        private string PrintJson(JsonElement jsonElement)
+        private JsonDocument ConvertToFilteredJsonDocument(Dictionary<string, JsonElement> filteredElements)
+        {
+            using var stream = new MemoryStream();
+            using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))
+            {
+                writer.WriteStartObject();
+                foreach (var kvp in filteredElements)
+                {
+                    writer.WritePropertyName(kvp.Key);
+                    kvp.Value.WriteTo(writer);
+                }
+                writer.WriteEndObject();
+            }
+            stream.Position = 0;
+            return JsonDocument.Parse(stream);
+        }
+
+        public string PrintJson(JsonElement jsonElement)
         {
             using var stream = new MemoryStream();
             using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))
@@ -124,7 +142,7 @@ namespace FIS_Client.Services
             return Encoding.UTF8.GetString(stream.ToArray());
         }
 
-        private string PrintJson(Dictionary<string, JsonElement> filteredElements)
+        public string PrintJson(Dictionary<string, JsonElement> filteredElements)
         {
             using var stream = new MemoryStream();
             using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))
