@@ -46,7 +46,7 @@ namespace FIS_Client.Services
 
             if (conditionParts.Length != 3)
             {
-                throw new ArgumentException("Invalid key-value format. Use 'key operator value'");
+                throw new ArgumentException("Invalid key-value format. Use 'key _IS_ value' or 'key _ISNOT_ value'");
             }
 
             var key = conditionParts[0];
@@ -61,13 +61,18 @@ namespace FIS_Client.Services
 
         private string[] SplitCondition(string condition)
         {
-            var parts = condition.Split(new[] { ' ' }, 3);
-            if (parts.Length == 3)
+            if (condition.Contains("_IS_"))
             {
-                return parts;
+                return condition.Split(new[] { "_IS_" }, StringSplitOptions.None);
             }
-
-            throw new ArgumentException("Invalid key-value format. Use 'key operator value'");
+            else if (condition.Contains("_ISNOT_"))
+            {
+                return condition.Split(new[] { "_ISNOT_" }, StringSplitOptions.None);
+            }
+            else
+            {
+                throw new ArgumentException("Invalid key-value format. Use 'key _IS_ value' or 'key _ISNOT_ value'");
+            }
         }
 
         private void FilterJsonElements(JsonElement element, string key, string operatorSymbol, string value, Dictionary<string, JsonElement> filteredElements)
@@ -106,8 +111,8 @@ namespace FIS_Client.Services
                     var elementValue = element.GetString();
                     return operatorSymbol switch
                     {
-                        "==" => elementValue == value,
-                        "!=" => elementValue != value,
+                        "_IS_" => elementValue == value,
+                        "_ISNOT_" => elementValue != value,
                         _ => throw new ArgumentException($"Unsupported operator '{operatorSymbol}'")
                     };
                 default:
