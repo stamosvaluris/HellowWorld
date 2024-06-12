@@ -127,7 +127,8 @@ namespace FIS_Client.Services
                         };
                     }
                     throw new ArgumentException($"Value '{value}' is not a valid number");
-                case JsonValueKind.Boolean:
+                case JsonValueKind.True:
+                case JsonValueKind.False:
                     if (bool.TryParse(value, out var boolValue))
                     {
                         var elementBool = element.GetBoolean();
@@ -183,6 +184,17 @@ namespace FIS_Client.Services
             var key = condition.Substring(0, operatorPos).Trim();
             var value = condition.Substring(operatorPos + operatorSymbol.Length).Trim();
             return new string[] { key, operatorSymbol, value };
+        }
+
+        public string PrintJson(JsonDocument jsonDocument)
+        {
+            using var stream = new MemoryStream();
+            var writerOptions = new JsonWriterOptions { Indented = true };
+            using (var writer = new Utf8JsonWriter(stream, writerOptions))
+            {
+                jsonDocument.WriteTo(writer);
+            }
+            return Encoding.UTF8.GetString(stream.ToArray());
         }
     }
 }
