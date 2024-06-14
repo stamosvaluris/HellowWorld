@@ -21,8 +21,16 @@ namespace FileOperations
             {
                 foreach (var criterion in criteria)
                 {
-                    var value = ((IDictionary<string, object>)record)[criterion.Key]?.ToString();
-                    if (value != criterion.Value)
+                    var recordDict = (IDictionary<string, object>)record;
+                    if (recordDict.ContainsKey(criterion.Key))
+                    {
+                        var value = recordDict[criterion.Key]?.ToString();
+                        if (value != criterion.Value)
+                        {
+                            return false;
+                        }
+                    }
+                    else
                     {
                         return false;
                     }
