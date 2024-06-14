@@ -4,7 +4,6 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using CsvHelper;
-using CsvHelper.Configuration;
 
 namespace FileOperations
 {
@@ -16,6 +15,8 @@ namespace FileOperations
             using var csvReader = new CsvReader(reader, CultureInfo.InvariantCulture);
 
             var records = csvReader.GetRecords<dynamic>().ToList();
+
+            Console.WriteLine($"Total records read: {records.Count}");
 
             var filteredRecords = records.Where(record =>
             {
@@ -38,9 +39,20 @@ namespace FileOperations
                 return true;
             }).ToList();
 
+            Console.WriteLine($"Total records after filtering: {filteredRecords.Count}");
+
             using var writer = new StreamWriter(outputFilePath);
             using var csvWriter = new CsvWriter(writer, CultureInfo.InvariantCulture);
-            csvWriter.WriteRecords(filteredRecords);
+
+            if (filteredRecords.Any())
+            {
+                csvWriter.WriteRecords(filteredRecords);
+                Console.WriteLine("Filtered records written to output file.");
+            }
+            else
+            {
+                Console.WriteLine("No records matched the criteria.");
+            }
         }
 
         public List<dynamic> ReadCsv(string filePath)
