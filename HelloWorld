@@ -1,33 +1,42 @@
-public static class ZipHelper
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
+using CsvHelper;
+using CsvHelper.Configuration;
+
+namespace FileOperations
 {
-    public static List<string> ExtractLastImportedZipFile(string folderPath)
+    public class CsvHelper
     {
-        // Get the last imported .zip file in the given directory
-        var lastImportedZipFile = new DirectoryInfo(folderPath)
-            .GetFiles("*.zip")
-            .OrderByDescending(f => f.LastWriteTime)
-            .FirstOrDefault();
-
-        if (lastImportedZipFile == null)
+        public List<T> ReadCsv<T>(string filePath)
         {
-            throw new FileNotFoundException("No .zip files found in the specified directory.");
+            using (var reader = new StreamReader(filePath))
+            using (var csv = new CsvReader(reader, CultureInfo.InvariantCulture))
+            {
+                var records = csv.GetRecords<T>();
+                return new List<T>(records);
+            }
         }
 
-        // Path to extract the zip file (in the same directory as the .zip file)
-        string extractedFolderPath = Path.Combine(folderPath, Path.GetFileNameWithoutExtension(lastImportedZipFile.Name) + "_extracted");
-
-        // Ensure the extract directory exists
-        if (!Directory.Exists(extractedFolderPath))
+        public void WriteCsv<T>(string filePath, IEnumerable<T> records)
         {
-            Directory.CreateDirectory(extractedFolderPath);
+            using (var writer = new StreamWriter(filePath))
+            using (var csv = new CsvWriter(writer, CultureInfo.InvariantCulture))
+            {
+                csv.WriteRecords(records);
+            }
         }
 
-        // Extract the zip file
-        ZipFile.ExtractToDirectory(lastImportedZipFile.FullName, extractedFolderPath);
-
-        // Get the paths of the extracted files
-        var extractedFilePaths = Directory.GetFiles(extractedFolderPath, "*", SearchOption.AllDirectories).ToList();
-
-        return extractedFilePaths;
+        public List<dynamic> ReadCsvAsDynamic(string filePath)
+        {
+            using (var reader = new StreamReader(filePath))
+            using (var csv = new CsvReader(reader, CultureInfo.InvariantCulture))
+            {
+                var records = csv.GetRecords<dynamic>();
+                return new List<dynamic>(records);
+            }
+        }
     }
 }
+
