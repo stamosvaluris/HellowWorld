@@ -26,9 +26,12 @@ namespace FileOperations
 
             Console.WriteLine($"Total records read: {records.Count}");
 
-            var filteredRecords = records.Where(record =>
+            var filteredRecords = new List<dynamic>();
+
+            foreach (var record in records)
             {
                 var recordDict = (IDictionary<string, object>)record;
+                bool recordMatches = true;
 
                 foreach (var criterion in criteria)
                 {
@@ -40,18 +43,22 @@ namespace FileOperations
                         var recordValue = recordDict[key]?.ToString().Trim();
                         if (recordValue != value)
                         {
-                            return false;
+                            recordMatches = false;
+                            break;
                         }
                     }
                     else
                     {
-                        Console.WriteLine($"Key {key} not found in record.");
-                        return false;
+                        recordMatches = false;
+                        break;
                     }
                 }
 
-                return true;
-            }).ToList();
+                if (recordMatches)
+                {
+                    filteredRecords.Add(record);
+                }
+            }
 
             Console.WriteLine($"Total records after filtering: {filteredRecords.Count}");
 
