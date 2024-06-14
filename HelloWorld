@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using CsvHelper;
+using CsvHelper.Configuration;
 
 namespace FileOperations
 {
@@ -11,8 +12,15 @@ namespace FileOperations
     {
         public void FilterCsv(string inputFilePath, string outputFilePath, Dictionary<string, string> criteria)
         {
+            var config = new CsvConfiguration(CultureInfo.InvariantCulture)
+            {
+                IgnoreBlankLines = true,
+                BadDataFound = context => Console.WriteLine($"Bad data found on row {context.Row}"),
+                MissingFieldFound = null
+            };
+
             using var reader = new StreamReader(inputFilePath);
-            using var csvReader = new CsvReader(reader, CultureInfo.InvariantCulture);
+            using var csvReader = new CsvReader(reader, config);
 
             var records = csvReader.GetRecords<dynamic>().ToList();
 
@@ -20,22 +28,28 @@ namespace FileOperations
 
             var filteredRecords = records.Where(record =>
             {
+                var recordDict = (IDictionary<string, object>)record;
+
                 foreach (var criterion in criteria)
                 {
-                    var recordDict = (IDictionary<string, object>)record;
-                    if (recordDict.ContainsKey(criterion.Key))
+                    var key = criterion.Key.Trim();
+                    var value = criterion.Value.Trim();
+
+                    if (recordDict.ContainsKey(key))
                     {
-                        var value = recordDict[criterion.Key]?.ToString();
-                        if (value != criterion.Value)
+                        var recordValue = recordDict[key]?.ToString().Trim();
+                        if (recordValue != value)
                         {
                             return false;
                         }
                     }
                     else
                     {
+                        Console.WriteLine($"Key {key} not found in record.");
                         return false;
                     }
                 }
+
                 return true;
             }).ToList();
 
