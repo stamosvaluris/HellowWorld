@@ -33,6 +33,12 @@ namespace FileOperations
                 var recordDict = (IDictionary<string, object>)record;
                 bool recordMatches = true;
 
+                Console.WriteLine("Checking record:");
+                foreach (var kvp in recordDict)
+                {
+                    Console.WriteLine($"{kvp.Key} = {kvp.Value}");
+                }
+
                 foreach (var criterion in criteria)
                 {
                     var key = criterion.Key.Trim();
@@ -41,6 +47,7 @@ namespace FileOperations
                     if (recordDict.ContainsKey(key))
                     {
                         var recordValue = recordDict[key]?.ToString().Trim();
+                        Console.WriteLine($"Checking {key}: {recordValue} == {value}");
                         if (recordValue != value)
                         {
                             recordMatches = false;
@@ -49,6 +56,7 @@ namespace FileOperations
                     }
                     else
                     {
+                        Console.WriteLine($"Key {key} not found in record.");
                         recordMatches = false;
                         break;
                     }
@@ -56,7 +64,12 @@ namespace FileOperations
 
                 if (recordMatches)
                 {
+                    Console.WriteLine("Record matches criteria.");
                     filteredRecords.Add(record);
+                }
+                else
+                {
+                    Console.WriteLine("Record does not match criteria.");
                 }
             }
 
