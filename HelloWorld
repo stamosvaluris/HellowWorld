@@ -1,69 +1,55 @@
+using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Text.Json;
+using CsvHelper;
+using CsvHelper.Configuration;
 
-public class JsonHelper
+namespace FileOperations
 {
-    public dynamic ReadJsonAsDynamic(string filePath)
+    public class CsvHelper
     {
-        var jsonString = File.ReadAllText(filePath);
-        return JsonSerializer.Deserialize<dynamic>(jsonString, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-    }
-
-    public void WriteJson<T>(string filePath, T obj)
-    {
-        var options = new JsonSerializerOptions { WriteIndented = true };
-        var jsonString = JsonSerializer.Serialize(obj, options);
-        File.WriteAllText(filePath, jsonString);
-    }
-
-    public void FilterProperties(string inputFilePath, string outputFilePath, List<string> propertiesToKeep)
-    {
-        var jsonObject = ReadJsonAsDynamic(inputFilePath);
-
-        var filteredObject = FilterPropertiesRecursive(jsonObject, propertiesToKeep);
-
-        WriteJson(outputFilePath, filteredObject);
-    }
-
-    private dynamic FilterPropertiesRecursive(dynamic jsonObject, List<string> propertiesToKeep)
-    {
-        if (jsonObject is JsonElement element)
+        public void FilterCsv(string inputFilePath, string outputFilePath, Dictionary<string, string> criteria)
         {
-            if (element.ValueKind == JsonValueKind.Object)
-            {
-                var result = new Dictionary<string, object>();
+            using var reader = new StreamReader(inputFilePath);
+            using var csvReader = new CsvReader(reader, CultureInfo.InvariantCulture);
 
-                foreach (var property in element.EnumerateObject())
+            var records = csvReader.GetRecords<dynamic>().ToList();
+
+            var filteredRecords = records.Where(record =>
+            {
+                foreach (var criterion in criteria)
                 {
-                    if (propertiesToKeep.Contains(property.Name))
+                    var value = ((IDictionary<string, object>)record)[criterion.Key]?.ToString();
+                    if (value != criterion.Value)
                     {
-                        result[property.Name] = FilterPropertiesRecursive(property.Value, propertiesToKeep);
+                        return false;
                     }
                 }
+                return true;
+            }).ToList();
 
-                return result;
-            }
-            else if (element.ValueKind == JsonValueKind.Array)
-            {
-                var result = new List<object>();
-
-                foreach (var item in element.EnumerateArray())
-                {
-                    result.Add(FilterPropertiesRecursive(item, propertiesToKeep));
-                }
-
-                return result;
-            }
-            else
-            {
-                return element.ToString();
-            }
+            using var writer = new StreamWriter(outputFilePath);
+            using var csvWriter = new CsvWriter(writer, CultureInfo.InvariantCulture);
+            csvWriter.WriteRecords(filteredRecords);
         }
-        else
+
+        public List<dynamic> ReadCsv(string filePath)
         {
-            return jsonObject;
+            using var reader = new StreamReader(filePath);
+            using var csvReader = new CsvReader(reader, CultureInfo.InvariantCulture);
+
+            var records = csvReader.GetRecords<dynamic>().ToList();
+            return records;
+        }
+
+        public void WriteCsv<T>(string filePath, List<T> records)
+        {
+            using var writer = new StreamWriter(filePath);
+            using var csvWriter = new CsvWriter(writer, CultureInfo.InvariantCulture);
+
+            csvWriter.WriteRecords(records);
         }
     }
 }
