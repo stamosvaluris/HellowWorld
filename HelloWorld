@@ -1,42 +1,50 @@
-using System;
+using CsvHelper;
 using System.Collections.Generic;
+using System.Dynamic;
 using System.Globalization;
 using System.IO;
-using CsvHelper;
-using CsvHelper.Configuration;
+using System.Linq;
 
-namespace FileOperations
+public class CsvHelper
 {
-    public class CsvHelper
+    public List<dynamic> ReadCsvAsDynamic(string filePath)
     {
-        public List<T> ReadCsv<T>(string filePath)
+        using (var reader = new StreamReader(filePath))
+        using (var csv = new CsvReader(reader, CultureInfo.InvariantCulture))
         {
-            using (var reader = new StreamReader(filePath))
-            using (var csv = new CsvReader(reader, CultureInfo.InvariantCulture))
-            {
-                var records = csv.GetRecords<T>();
-                return new List<T>(records);
-            }
-        }
-
-        public void WriteCsv<T>(string filePath, IEnumerable<T> records)
-        {
-            using (var writer = new StreamWriter(filePath))
-            using (var csv = new CsvWriter(writer, CultureInfo.InvariantCulture))
-            {
-                csv.WriteRecords(records);
-            }
-        }
-
-        public List<dynamic> ReadCsvAsDynamic(string filePath)
-        {
-            using (var reader = new StreamReader(filePath))
-            using (var csv = new CsvReader(reader, CultureInfo.InvariantCulture))
-            {
-                var records = csv.GetRecords<dynamic>();
-                return new List<dynamic>(records);
-            }
+            var records = csv.GetRecords<dynamic>();
+            return new List<dynamic>(records);
         }
     }
-}
 
+    public void WriteCsv<T>(string filePath, IEnumerable<T> records)
+    {
+        using (var writer = new StreamWriter(filePath))
+        using (var csv = new CsvWriter(writer, CultureInfo.InvariantCulture))
+        {
+            csv.WriteRecords(records);
+        }
+    }
+
+    public void FilterColumns(string inputFilePath, string outputFilePath, List<string> columnsToKeep)
+    {
+        var records = ReadCsvAsDynamic(inputFilePath);
+
+        var filteredRecords = records.Select(record =>
+        {
+            var filteredRecord = new ExpandoObject() as IDictionary<string, object>;
+
+            foreach (var column in columnsToKeep)
+            {
+                if (((IDictionary<string, object>)record).ContainsKey(column))
+                {
+                    filteredRecord[column] = ((IDictionary<string, object>)record)[column];
+                }
+            }
+
+            return (dynamic)filteredRecord;
+        }).ToList();
+
+        WriteCsv(outputFilePath, filteredRecords);
+    }
+}
