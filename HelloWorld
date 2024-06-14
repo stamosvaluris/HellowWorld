@@ -1,234 +1,210 @@
+using Renci.SshNet;
 using System;
-using System.Collections.Generic;
 using System.IO;
-using System.Net.Http;
-using System.Text;
-using System.Text.Json;
-using System.Threading.Tasks;
+using System.Linq;
 
-namespace FIS_Client.Services
+namespace Clients.Sftp
 {
-    public class CpStaticDataService
+    public class SftpConfig
     {
-        private readonly HttpClient _httpClient;
-        private readonly string _baseUrl;
-        private readonly string _endpoint;
+        public string? Host { get; set; }
+        public string? Username { get; set; }
+        public string? Password { get; set; }
+        public int Port { get; set; }
+    }
 
-        public CpStaticDataService(HttpClient httpClient, string baseUrl, string endpoint)
+    public class ConfigReader
+    {
+        public SftpConfig ReadConfig(string pathToPayload)
         {
-            _httpClient = httpClient;
-            _baseUrl = baseUrl;
-            _endpoint = endpoint;
+            string? json = File.ReadAllText(pathToPayload);
+            SftpConfig? config = JsonSerializer.Deserialize<SftpConfig>(json);
+            return config;
+        }
+    }
+
+    public class SftpClient
+    {
+        private Renci.SshNet.SftpClient _client;
+
+        public void Connect(string server, int port, string username, string password)
+        {
+            _client = new Renci.SshNet.SftpClient(server, port, username, password);
+            _client.Connect();
+            if (_client.IsConnected)
+            {
+                Console.WriteLine("Connected to the SFTP server.");
+            }
+            else
+            {
+                Console.WriteLine("Could not connect to the SFTP server.");
+            }
         }
 
-        public async Task<JsonDocument> GetCounterpartyStaticDataAsync(string token, string counterpartyName)
+        public void ListDirectoryContents(string directoryPath = null)
         {
-            var url = $"{_baseUrl}{_endpoint}{counterpartyName}";
-            _httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
-            var response = await _httpClient.GetAsync(url);
-            response.EnsureSuccessStatusCode();
-            var jsonString = await response.Content.ReadAsStringAsync();
-            return JsonDocument.Parse(jsonString);
-        }
-
-        public async Task<JsonDocument> GetConditionalCounterpartyStaticDataAsync(string token, string counterpartyName, string condition)
-        {
-            var jsonDocument = await GetCounterpartyStaticDataAsync(token, counterpartyName);
-            var jsonElement = jsonDocument.RootElement;
-
-            if (string.IsNullOrEmpty(condition))
+            if (_client == null || !_client.IsConnected)
             {
-                return jsonDocument;
+                Console.WriteLine("Client is not connected.");
+                return;
             }
 
-            var conditionParts = ParseCondition(condition);
-
-            if (conditionParts == null || conditionParts.Length != 3)
+            try
             {
-                throw new ArgumentException("Invalid key-value format. Use 'key operator value'");
-            }
-
-            var key = conditionParts[0];
-            var operatorSymbol = conditionParts[1];
-            var value = conditionParts[2];
-
-            if (CheckConditionInJsonElement(jsonElement, key, operatorSymbol, value))
-            {
-                return jsonDocument;
-            }
-
-            return null;
-        }
-
-        private bool CheckConditionInJsonElement(JsonElement element, string key, string operatorSymbol, string value)
-        {
-            if (element.ValueKind == JsonValueKind.Object)
-            {
-                foreach (var property in element.EnumerateObject())
+                var path = directoryPath ?? _client.WorkingDirectory;
+                var files = _client.ListDirectory(path);
+                Console.WriteLine($"Contents of {path}:");
+                foreach (var file in files)
                 {
-                    if (property.NameEquals(key) && IsConditionMet(property.Value, operatorSymbol, value))
-                    {
-                        return true;
-                    }
-                    else if (property.Value.ValueKind == JsonValueKind.Object || property.Value.ValueKind == JsonValueKind.Array)
-                    {
-                        if (CheckConditionInJsonElement(property.Value, key, operatorSymbol, value))
-                        {
-                            return true;
-                        }
-                    }
+                    string entryType = file.IsDirectory ? "directory" : "file";
+                    Console.WriteLine($"{entryType}: {file.Name}");
                 }
             }
-            else if (element.ValueKind == JsonValueKind.Array)
+            catch (Exception ex)
             {
-                foreach (var item in element.EnumerateArray())
-                {
-                    if (item.ValueKind == JsonValueKind.Object)
-                    {
-                        if (CheckConditionInJsonElement(item, key, operatorSymbol, value))
-                        {
-                            return true;
-                        }
-                    }
-                }
-            }
-            return false;
-        }
-
-        private bool IsConditionMet(JsonElement element, string operatorSymbol, string value)
-        {
-            switch (element.ValueKind)
-            {
-                case JsonValueKind.String:
-                    var elementValue = element.GetString();
-                    return operatorSymbol switch
-                    {
-                        "==" => elementValue == value,
-                        "!=" => elementValue != value,
-                        _ => throw new ArgumentException($"Unsupported operator '{operatorSymbol}'")
-                    };
-                case JsonValueKind.Number:
-                    if (double.TryParse(value, out var doubleValue))
-                    {
-                        var elementNumber = element.GetDouble();
-                        return operatorSymbol switch
-                        {
-                            "==" => elementNumber == doubleValue,
-                            "!=" => elementNumber != doubleValue,
-                            ">" => elementNumber > doubleValue,
-                            "<" => elementNumber < doubleValue,
-                            ">=" => elementNumber >= doubleValue,
-                            "<=" => elementNumber <= doubleValue,
-                            _ => throw new ArgumentException($"Unsupported operator '{operatorSymbol}'")
-                        };
-                    }
-                    throw new ArgumentException($"Value '{value}' is not a valid number");
-                case JsonValueKind.True:
-                case JsonValueKind.False:
-                    if (bool.TryParse(value, out var boolValue))
-                    {
-                        var elementBool = element.GetBoolean();
-                        return operatorSymbol switch
-                        {
-                            "==" => elementBool == boolValue,
-                            "!=" => elementBool != boolValue,
-                            _ => throw new ArgumentException($"Unsupported operator '{operatorSymbol}'")
-                        };
-                    }
-                    throw new ArgumentException($"Value '{value}' is not a valid boolean");
-                default:
-                    throw new ArgumentException("Unsupported value type for condition");
+                Console.WriteLine($"An error occurred: {ex.Message}");
             }
         }
 
-        private string[] ParseCondition(string condition)
+        public string GetLastUploadedZipPath(string directoryPath = null)
         {
-            // Find the operator position
-            int operatorPos = condition.IndexOf("==");
-            string operatorSymbol = "==";
-            if (operatorPos == -1)
+            if (_client == null || !_client.IsConnected)
             {
-                operatorPos = condition.IndexOf("!=");
-                operatorSymbol = "!=";
-            }
-            if (operatorPos == -1)
-            {
-                operatorPos = condition.IndexOf(">");
-                operatorSymbol = ">";
-            }
-            if (operatorPos == -1)
-            {
-                operatorPos = condition.IndexOf("<");
-                operatorSymbol = "<";
-            }
-            if (operatorPos == -1)
-            {
-                operatorPos = condition.IndexOf(">=");
-                operatorSymbol = ">=";
-            }
-            if (operatorPos == -1)
-            {
-                operatorPos = condition.IndexOf("<=");
-                operatorSymbol = "<=";
-            }
-
-            if (operatorPos == -1)
-            {
+                Console.WriteLine("Client is not connected.");
                 return null;
             }
 
-            var key = condition.Substring(0, operatorPos).Trim();
-            var value = condition.Substring(operatorPos + operatorSymbol.Length).Trim();
-            return new string[] { key, operatorSymbol, value };
-        }
-
-        public string PrintJson(JsonDocument jsonDocument)
-        {
-            using var stream = new MemoryStream();
-            var writerOptions = new JsonWriterOptions { Indented = true };
-            using (var writer = new Utf8JsonWriter(stream, writerOptions))
+            try
             {
-                jsonDocument.WriteTo(writer);
+                var path = directoryPath ?? _client.WorkingDirectory;
+                var zipFiles = _client.ListDirectory(path)
+                    .Where(f => !f.IsDirectory && f.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+                    .OrderByDescending(f => f.LastWriteTime)
+                    .FirstOrDefault();
+
+                if (zipFiles != null)
+                {
+                    Console.WriteLine($"Last uploaded zip file: {zipFiles.Name}");
+                    return zipFiles.FullName;
+                }
+                else
+                {
+                    Console.WriteLine("No zip files found.");
+                    return null;
+                }
             }
-            return Encoding.UTF8.GetString(stream.ToArray());
-        }
-
-        public async Task<List<string>> ExtractValuesByKeyAsync(JsonDocument jsonDocument, string key)
-        {
-            var values = new List<string>();
-            await ExtractValuesByKeyRecursiveAsync(jsonDocument.RootElement, key, values);
-            return values;
-        }
-
-        private Task ExtractValuesByKeyRecursiveAsync(JsonElement element, string key, List<string> values)
-        {
-            return Task.Run(() =>
+            catch (Exception ex)
             {
-                if (element.ValueKind == JsonValueKind.Object)
+                Console.WriteLine($"An error occurred: {ex.Message}");
+                return null;
+            }
+        }
+
+        public void GetLastUploadedZipFile(string localDirectory = null)
+        {
+            if (_client == null || !_client.IsConnected)
+            {
+                Console.WriteLine("Client is not connected.");
+                return;
+            }
+
+            string zipFilePath = GetLastUploadedZipPath();
+
+            if (zipFilePath == null)
+            {
+                Console.WriteLine("No zip file found to download.");
+                return;
+            }
+
+            try
+            {
+                string targetDirectory = localDirectory ?? Directory.GetCurrentDirectory();
+                string localFilePath = Path.Combine(targetDirectory, Path.GetFileName(zipFilePath));
+
+                using (var fileStream = new FileStream(localFilePath, FileMode.Create))
                 {
-                    foreach (var property in element.EnumerateObject())
-                    {
-                        if (property.NameEquals(key))
-                        {
-                            values.Add(property.Value.ToString());
-                        }
-                        else if (property.Value.ValueKind == JsonValueKind.Object || property.Value.ValueKind == JsonValueKind.Array)
-                        {
-                            ExtractValuesByKeyRecursiveAsync(property.Value, key, values).Wait();
-                        }
-                    }
+                    _client.DownloadFile(zipFilePath, fileStream);
                 }
-                else if (element.ValueKind == JsonValueKind.Array)
+
+                Console.WriteLine($"Last uploaded zip file downloaded successfully to: {localFilePath}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"An error occurred: {ex.Message}");
+            }
+        }
+
+        public void ChangeDirectory(string newDirectory)
+        {
+            if (_client == null || !_client.IsConnected)
+            {
+                Console.WriteLine("Client is not connected.");
+                return;
+            }
+
+            try
+            {
+                _client.ChangeDirectory(newDirectory);
+                Console.WriteLine($"Directory changed successfully to {newDirectory}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"An error occurred: {ex.Message}");
+            }
+        }
+
+        public void UploadFile(string localFilePath, string remoteDirectory)
+        {
+            if (_client == null || !_client.IsConnected)
+            {
+                Console.WriteLine("Client is not connected.");
+                return;
+            }
+
+            try
+            {
+                using (FileStream fs = new FileStream(localFilePath, FileMode.Open))
                 {
-                    foreach (var item in element.EnumerateArray())
-                    {
-                        if (item.ValueKind == JsonValueKind.Object || item.ValueKind == JsonValueKind.Array)
-                        {
-                            ExtractValuesByKeyRecursiveAsync(item, key, values).Wait();
-                        }
-                    }
+                    _client.UploadFile(fs, Path.Combine(remoteDirectory, Path.GetFileName(localFilePath)));
                 }
-            });
+                Console.WriteLine("File uploaded successfully");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"An error occurred: {ex.Message}");
+            }
+        }
+
+        public void DownloadFile(string remoteFilePath, string localDirectory)
+        {
+            if (_client == null || !_client.IsConnected)
+            {
+                Console.WriteLine("Client is not connected.");
+                return;
+            }
+
+            try
+            {
+                string localFilePath = Path.Combine(localDirectory, Path.GetFileName(remoteFilePath));
+                using (FileStream fs = new FileStream(localFilePath, FileMode.Create))
+                {
+                    _client.DownloadFile(remoteFilePath, fs);
+                }
+                Console.WriteLine("File downloaded successfully");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"An error occurred: {ex.Message}");
+            }
+        }
+
+        public void Disconnect()
+        {
+            if (_client != null)
+            {
+                _client.Disconnect();
+                Console.WriteLine("Disconnected from the SFTP server.");
+            }
         }
     }
 }
