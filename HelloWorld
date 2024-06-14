@@ -1,210 +1,33 @@
-using Renci.SshNet;
-using System;
-using System.IO;
-using System.Linq;
-
-namespace Clients.Sftp
+public static class ZipHelper
 {
-    public class SftpConfig
+    public static List<string> ExtractLastImportedZipFile(string folderPath)
     {
-        public string? Host { get; set; }
-        public string? Username { get; set; }
-        public string? Password { get; set; }
-        public int Port { get; set; }
-    }
+        // Get the last imported .zip file in the given directory
+        var lastImportedZipFile = new DirectoryInfo(folderPath)
+            .GetFiles("*.zip")
+            .OrderByDescending(f => f.LastWriteTime)
+            .FirstOrDefault();
 
-    public class ConfigReader
-    {
-        public SftpConfig ReadConfig(string pathToPayload)
+        if (lastImportedZipFile == null)
         {
-            string? json = File.ReadAllText(pathToPayload);
-            SftpConfig? config = JsonSerializer.Deserialize<SftpConfig>(json);
-            return config;
-        }
-    }
-
-    public class SftpClient
-    {
-        private Renci.SshNet.SftpClient _client;
-
-        public void Connect(string server, int port, string username, string password)
-        {
-            _client = new Renci.SshNet.SftpClient(server, port, username, password);
-            _client.Connect();
-            if (_client.IsConnected)
-            {
-                Console.WriteLine("Connected to the SFTP server.");
-            }
-            else
-            {
-                Console.WriteLine("Could not connect to the SFTP server.");
-            }
+            throw new FileNotFoundException("No .zip files found in the specified directory.");
         }
 
-        public void ListDirectoryContents(string directoryPath = null)
-        {
-            if (_client == null || !_client.IsConnected)
-            {
-                Console.WriteLine("Client is not connected.");
-                return;
-            }
+        // Path to extract the zip file (in the same directory as the .zip file)
+        string extractedFolderPath = Path.Combine(folderPath, Path.GetFileNameWithoutExtension(lastImportedZipFile.Name) + "_extracted");
 
-            try
-            {
-                var path = directoryPath ?? _client.WorkingDirectory;
-                var files = _client.ListDirectory(path);
-                Console.WriteLine($"Contents of {path}:");
-                foreach (var file in files)
-                {
-                    string entryType = file.IsDirectory ? "directory" : "file";
-                    Console.WriteLine($"{entryType}: {file.Name}");
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"An error occurred: {ex.Message}");
-            }
+        // Ensure the extract directory exists
+        if (!Directory.Exists(extractedFolderPath))
+        {
+            Directory.CreateDirectory(extractedFolderPath);
         }
 
-        public string GetLastUploadedZipPath(string directoryPath = null)
-        {
-            if (_client == null || !_client.IsConnected)
-            {
-                Console.WriteLine("Client is not connected.");
-                return null;
-            }
+        // Extract the zip file
+        ZipFile.ExtractToDirectory(lastImportedZipFile.FullName, extractedFolderPath);
 
-            try
-            {
-                var path = directoryPath ?? _client.WorkingDirectory;
-                var zipFiles = _client.ListDirectory(path)
-                    .Where(f => !f.IsDirectory && f.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
-                    .OrderByDescending(f => f.LastWriteTime)
-                    .FirstOrDefault();
+        // Get the paths of the extracted files
+        var extractedFilePaths = Directory.GetFiles(extractedFolderPath, "*", SearchOption.AllDirectories).ToList();
 
-                if (zipFiles != null)
-                {
-                    Console.WriteLine($"Last uploaded zip file: {zipFiles.Name}");
-                    return zipFiles.FullName;
-                }
-                else
-                {
-                    Console.WriteLine("No zip files found.");
-                    return null;
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"An error occurred: {ex.Message}");
-                return null;
-            }
-        }
-
-        public void GetLastUploadedZipFile(string localDirectory = null)
-        {
-            if (_client == null || !_client.IsConnected)
-            {
-                Console.WriteLine("Client is not connected.");
-                return;
-            }
-
-            string zipFilePath = GetLastUploadedZipPath();
-
-            if (zipFilePath == null)
-            {
-                Console.WriteLine("No zip file found to download.");
-                return;
-            }
-
-            try
-            {
-                string targetDirectory = localDirectory ?? Directory.GetCurrentDirectory();
-                string localFilePath = Path.Combine(targetDirectory, Path.GetFileName(zipFilePath));
-
-                using (var fileStream = new FileStream(localFilePath, FileMode.Create))
-                {
-                    _client.DownloadFile(zipFilePath, fileStream);
-                }
-
-                Console.WriteLine($"Last uploaded zip file downloaded successfully to: {localFilePath}");
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"An error occurred: {ex.Message}");
-            }
-        }
-
-        public void ChangeDirectory(string newDirectory)
-        {
-            if (_client == null || !_client.IsConnected)
-            {
-                Console.WriteLine("Client is not connected.");
-                return;
-            }
-
-            try
-            {
-                _client.ChangeDirectory(newDirectory);
-                Console.WriteLine($"Directory changed successfully to {newDirectory}");
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"An error occurred: {ex.Message}");
-            }
-        }
-
-        public void UploadFile(string localFilePath, string remoteDirectory)
-        {
-            if (_client == null || !_client.IsConnected)
-            {
-                Console.WriteLine("Client is not connected.");
-                return;
-            }
-
-            try
-            {
-                using (FileStream fs = new FileStream(localFilePath, FileMode.Open))
-                {
-                    _client.UploadFile(fs, Path.Combine(remoteDirectory, Path.GetFileName(localFilePath)));
-                }
-                Console.WriteLine("File uploaded successfully");
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"An error occurred: {ex.Message}");
-            }
-        }
-
-        public void DownloadFile(string remoteFilePath, string localDirectory)
-        {
-            if (_client == null || !_client.IsConnected)
-            {
-                Console.WriteLine("Client is not connected.");
-                return;
-            }
-
-            try
-            {
-                string localFilePath = Path.Combine(localDirectory, Path.GetFileName(remoteFilePath));
-                using (FileStream fs = new FileStream(localFilePath, FileMode.Create))
-                {
-                    _client.DownloadFile(remoteFilePath, fs);
-                }
-                Console.WriteLine("File downloaded successfully");
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"An error occurred: {ex.Message}");
-            }
-        }
-
-        public void Disconnect()
-        {
-            if (_client != null)
-            {
-                _client.Disconnect();
-                Console.WriteLine("Disconnected from the SFTP server.");
-            }
-        }
+        return extractedFilePaths;
     }
 }
