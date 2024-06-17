@@ -1,84 +1,4 @@
 using System.Collections.Generic;
-using System.IO;
-using System.Threading.Tasks;
-
-namespace FileOperations
-{
-    public static class FileOperationsHelper
-    {
-        public static async Task MoveFilesAsync(List<string> filePaths, string destinationFolder)
-        {
-            foreach (var filePath in filePaths)
-            {
-                var fileName = Path.GetFileName(filePath);
-                var destPath = Path.Combine(destinationFolder, fileName);
-                if (!Directory.Exists(destinationFolder))
-                {
-                    Directory.CreateDirectory(destinationFolder);
-                }
-                File.Move(filePath, destPath);
-            }
-        }
-
-        public static async Task DeleteFilesAsync(List<string> filePaths)
-        {
-            foreach (var filePath in filePaths)
-            {
-                if (File.Exists(filePath))
-                {
-                    File.Delete(filePath);
-                }
-            }
-        }
-
-        public static async Task DeleteFoldersAsync(List<string> folderPaths)
-        {
-            foreach (var folderPath in folderPaths)
-            {
-                if (Directory.Exists(folderPath))
-                {
-                    Directory.Delete(folderPath, true);
-                }
-            }
-        }
-
-        public static async Task DeleteFolderContentsAsync(List<string> folderPaths)
-        {
-            foreach (var folderPath in folderPaths)
-            {
-                if (Directory.Exists(folderPath))
-                {
-                    var files = Directory.GetFiles(folderPath);
-                    var directories = Directory.GetDirectories(folderPath);
-
-                    foreach (var file in files)
-                    {
-                        File.Delete(file);
-                    }
-
-                    foreach (var directory in directories)
-                    {
-                        Directory.Delete(directory, true);
-                    }
-                }
-            }
-        }
-
-        public static async Task WriteFileAsync(string folderPath, string fileName, string content, string extension)
-        {
-            if (!Directory.Exists(folderPath))
-            {
-                Directory.CreateDirectory(folderPath);
-            }
-
-            var filePath = Path.Combine(folderPath, $"{fileName}.{extension}");
-            await File.WriteAllTextAsync(filePath, content);
-        }
-    }
-}
-########
-
-using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -90,229 +10,82 @@ namespace FileOperations
 {
     public static class CsvHelper
     {
-        public static async Task FilterCsvAsync(string inputFilePath, string outputFilePath, Dictionary<string, string> criteria)
+        public static async Task<IEnumerable<dynamic>> FilterCsvAsync(string inputFilePath, Dictionary<string, string> criteria)
         {
-            var config = new CsvConfiguration(CultureInfo.InvariantCulture)
+            using var reader = new StreamReader(inputFilePath);
+            using var csvReader = new CsvReader(reader, new CsvConfiguration(CultureInfo.InvariantCulture)
             {
                 IgnoreBlankLines = true,
-                BadDataFound = context => Console.WriteLine("Bad data found"),
+                BadDataFound = context => Console.WriteLine($"Bad data found at row {context.RawRow}"),
                 MissingFieldFound = null
-            };
+            });
 
-            using var reader = new StreamReader(inputFilePath);
-            using var csvReader = new CsvReader(reader, config);
-            var records = csvReader.GetRecords<dynamic>().ToList();
-
+            var records = await csvReader.GetRecordsAsync<dynamic>().ToListAsync();
             var filteredRecords = new List<dynamic>();
+
             foreach (var record in records)
             {
                 var recordDict = record as IDictionary<string, object>;
                 if (recordDict == null) continue;
 
                 bool recordMatches = criteria.All(c => recordDict.ContainsKey(c.Key) && recordDict[c.Key]?.ToString() == c.Value);
-
                 if (recordMatches)
                 {
                     filteredRecords.Add(record);
                 }
             }
 
-            using var writer = new StreamWriter(outputFilePath);
-            using var csvWriter = new CsvWriter(writer, config);
-            await csvWriter.WriteRecordsAsync(filteredRecords);
+            return filteredRecords;
         }
 
-        public static async Task WriteCsvAsync(string folderPath, string fileName, IEnumerable<dynamic> records)
+        public static async Task WriteCsvAsync(string outputFilePath, IEnumerable<dynamic> records)
         {
-            var config = new CsvConfiguration(CultureInfo.InvariantCulture)
+            using var writer = new StreamWriter(outputFilePath);
+            using var csvWriter = new CsvWriter(writer, new CsvConfiguration(CultureInfo.InvariantCulture)
             {
                 IgnoreBlankLines = true
-            };
-
-            using var writer = new StringWriter();
-            using var csvWriter = new CsvWriter(writer, config);
-            await csvWriter.WriteRecordsAsync(records);
-
-            await FileOperationsHelper.WriteFileAsync(folderPath, fileName, writer.ToString(), "csv");
-        }
-    }
-}
-
-###########
-
-using System.Text.Json;
-using System.Text.Json.Serialization;
-using System.Threading.Tasks;
-using System.Collections.Generic;
-using System.IO;
-
-namespace FileOperations
-{
-    public class JsonHelper
-    {
-        public string[] ParseCondition(string condition)
-        {
-            int operatorPos = condition.IndexOf("==");
-            string operatorSymbol = "==";
-            if (operatorPos == -1)
-            {
-                operatorPos = condition.IndexOf("!=");
-                operatorSymbol = "!=";
-            }
-            if (operatorPos == -1)
-            {
-                operatorPos = condition.IndexOf(">=");
-                operatorSymbol = ">=";
-            }
-            if (operatorPos == -1)
-            {
-                operatorPos = condition.IndexOf("<=");
-                operatorSymbol = "<=";
-            }
-            if (operatorPos == -1)
-            {
-                operatorPos = condition.IndexOf(">");
-                operatorSymbol = ">";
-            }
-            if (operatorPos == -1)
-            {
-                operatorPos = condition.IndexOf("<");
-                operatorSymbol = "<";
-            }
-            if (operatorPos == -1)
-            {
-                return null;
-            }
-
-            var key = condition.Substring(0, operatorPos).Trim();
-            var value = condition.Substring(operatorPos + operatorSymbol.Length).Trim();
-            return new string[] { key, operatorSymbol, value };
-        }
-
-        public bool CheckConditionInJsonElement(JsonElement element, string key, string operatorSymbol, string value)
-        {
-            if (element.ValueKind == JsonValueKind.Object)
-            {
-                foreach (var property in element.EnumerateObject())
-                {
-                    if (property.NameEquals(key) && IsConditionMet(property.Value, operatorSymbol, value))
-                    {
-                        return true;
-                    }
-                    if (property.Value.ValueKind == JsonValueKind.Object || property.Value.ValueKind == JsonValueKind.Array)
-                    {
-                        if (CheckConditionInJsonElement(property.Value, key, operatorSymbol, value))
-                        {
-                            return true;
-                        }
-                    }
-                }
-            }
-            else if (element.ValueKind == JsonValueKind.Array)
-            {
-                foreach (var item in element.EnumerateArray())
-                {
-                    if (item.ValueKind == JsonValueKind.Object || item.ValueKind == JsonValueKind.Array)
-                    {
-                        if (CheckConditionInJsonElement(item, key, operatorSymbol, value))
-                        {
-                            return true;
-                        }
-                    }
-                }
-            }
-            return false;
-        }
-
-        private bool IsConditionMet(JsonElement element, string operatorSymbol, string value)
-        {
-            switch (element.ValueKind)
-            {
-                case JsonValueKind.String:
-                    var elementValue = element.GetString();
-                    return operatorSymbol switch
-                    {
-                        "==" => elementValue == value,
-                        "!=" => elementValue != value,
-                        _ => throw new ArgumentException($"Unsupported operator '{operatorSymbol}'")
-                    };
-                case JsonValueKind.Number:
-                    if (double.TryParse(value, out var doubleValue))
-                    {
-                        var elementNumber = element.GetDouble();
-                        return operatorSymbol switch
-                        {
-                            "==" => elementNumber == doubleValue,
-                            "!=" => elementNumber != doubleValue,
-                            ">" => elementNumber > doubleValue,
-                            "<" => elementNumber < doubleValue,
-                            ">=" => elementNumber >= doubleValue,
-                            "<=" => elementNumber <= doubleValue,
-                            _ => throw new ArgumentException($"Unsupported operator '{operatorSymbol}'")
-                        };
-                    }
-                    throw new ArgumentException($"Value '{value}' is not a valid number");
-                case JsonValueKind.True:
-                case JsonValueKind.False:
-                    if (bool.TryParse(value, out var boolValue))
-                    {
-                        var elementBool = element.GetBoolean();
-                        return operatorSymbol switch
-                        {
-                            "==" => elementBool == boolValue,
-                            "!=" => elementBool != boolValue,
-                            _ => throw new ArgumentException($"Unsupported operator '{operatorSymbol}'")
-                        };
-                    }
-                    throw new ArgumentException($"Value '{value}' is not a valid boolean");
-                default:
-                    throw new ArgumentException($"Unsupported value type for condition");
-            }
-        }
-
-        public async Task<List<string>> ExtractValuesByKeyAsync(JsonDocument jsonDocument, string key)
-        {
-            var values = new List<string>();
-            await ExtractValuesByKeyRecursiveAsync(jsonDocument.RootElement, key, values);
-            return values;
-        }
-
-        private Task ExtractValuesByKeyRecursiveAsync(JsonElement element, string key, List<string> values)
-        {
-            return Task.Run(() =>
-            {
-                if (element.ValueKind == JsonValueKind.Object)
-                {
-                    foreach (var property in element.EnumerateObject())
-                    {
-                        if (property.NameEquals(key))
-                        {
-                            values.Add(property.Value.ToString());
-                        }
-                        else if (property.Value.ValueKind == JsonValueKind.Object || property.Value.ValueKind == JsonValueKind.Array)
-                        {
-                            ExtractValuesByKeyRecursiveAsync(property.Value, key, values).Wait();
-                        }
-                    }
-                }
-                else if (element.ValueKind == JsonValueKind.Array)
-                {
-                    foreach (var item in element.EnumerateArray())
-                    {
-                        if (item.ValueKind == JsonValueKind.Object || item.ValueKind == JsonValueKind.Array)
-                        {
-                            ExtractValuesByKeyRecursiveAsync(item, key, values).Wait();
-                        }
-                    }
-                }
             });
+
+            await csvWriter.WriteRecordsAsync(records);
         }
 
-        public async Task WriteJsonAsync(string folderPath, string fileName, dynamic obj)
+        public static async Task<IEnumerable<dynamic>> FilterCsvAsync(Stream csvStream, Dictionary<string, string> criteria)
         {
-            var options = new JsonSerializerOptions { WriteIndented = true };
-            var jsonString = JsonSerializer.Serialize(obj, options);
-            await FileOperationsHelper.WriteFileAsync(folderPath, fileName, jsonString, "json");
+            using var reader = new StreamReader(csvStream);
+            using var csvReader = new CsvReader(reader, new CsvConfiguration(CultureInfo.InvariantCulture)
+            {
+                IgnoreBlankLines = true,
+                BadDataFound = context => Console.WriteLine($"Bad data found at row {context.RawRow}"),
+                MissingFieldFound = null
+            });
+
+            var records = await csvReader.GetRecordsAsync<dynamic>().ToListAsync();
+            var filteredRecords = new List<dynamic>();
+
+            foreach (var record in records)
+            {
+                var recordDict = record as IDictionary<string, object>;
+                if (recordDict == null) continue;
+
+                bool recordMatches = criteria.All(c => recordDict.ContainsKey(c.Key) && recordDict[c.Key]?.ToString() == c.Value);
+                if (recordMatches)
+                {
+                    filteredRecords.Add(record);
+                }
+            }
+
+            return filteredRecords;
+        }
+
+        public static async Task WriteCsvAsync(Stream outputStream, IEnumerable<dynamic> records)
+        {
+            using var writer = new StreamWriter(outputStream);
+            using var csvWriter = new CsvWriter(writer, new CsvConfiguration(CultureInfo.InvariantCulture)
+            {
+                IgnoreBlankLines = true
+            });
+
+            await csvWriter.WriteRecordsAsync(records);
         }
     }
 }
