@@ -1,63 +1,240 @@
 using System;
-using System.Net.Http;
+using System.Collections.Generic;
+using System.IO;
+using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
-using FileOperations; // Assuming JsonHelper is in FileOperations namespace
 
-namespace FIS.Client.Services
+namespace FileOperations
 {
-    public class CpStaticDataService
+    public class JsonHelper
     {
-        private readonly HttpClient _httpClient;
-        private readonly string _baseUrl;
-        private readonly string _endpoint;
-        private readonly JsonHelper _jsonHelper;
-
-        public CpStaticDataService(HttpClient httpClient, string baseUrl, string endpoint)
+        public dynamic ReadJsonAsDynamic(string filePath)
         {
-            _httpClient = httpClient;
-            _baseUrl = baseUrl;
-            _endpoint = endpoint;
-            _jsonHelper = new JsonHelper(); // Initialize JsonHelper
+            var jsonString = File.ReadAllText(filePath);
+            return JsonSerializer.Deserialize<dynamic>(jsonString, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
         }
 
-        public async Task<JsonDocument> GetCounterpartyStaticDataAsync(string token, string counterpartyName)
+        public void WriteJson<T>(string filePath, T obj)
         {
-            var url = $"{_baseUrl}{_endpoint}{counterpartyName}";
-            _httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
-            var response = await _httpClient.GetAsync(url);
-            response.EnsureSuccessStatusCode();
-            var jsonString = await response.Content.ReadAsStringAsync();
-            return JsonDocument.Parse(jsonString);
+            var options = new JsonSerializerOptions { WriteIndented = true };
+            var jsonString = JsonSerializer.Serialize(obj, options);
+            File.WriteAllText(filePath, jsonString);
         }
 
-        public async Task<JsonDocument> GetConditionalCounterpartyStaticDataAsync(string token, string counterpartyName, string condition)
+        public void FilterProperties(string inputFilePath, string outputFilePath, List<string> propertiesToKeep)
         {
-            var jsonDocument = await GetCounterpartyStaticDataAsync(token, counterpartyName);
-            var rootElement = jsonDocument.RootElement;
+            var jsonObject = ReadJsonAsDynamic(inputFilePath);
+            var filteredObject = FilterPropertiesRecursive(jsonObject, propertiesToKeep);
+            WriteJson(outputFilePath, filteredObject);
+        }
 
-            if (string.IsNullOrEmpty(condition))
+        private dynamic FilterPropertiesRecursive(dynamic jsonObject, List<string> propertiesToKeep)
+        {
+            if (jsonObject is JsonElement element)
             {
-                return jsonDocument;
+                if (element.ValueKind == JsonValueKind.Object)
+                {
+                    var result = new Dictionary<string, object>();
+
+                    foreach (var property in element.EnumerateObject())
+                    {
+                        if (propertiesToKeep.Contains(property.Name))
+                        {
+                            result[property.Name] = FilterPropertiesRecursive(property.Value, propertiesToKeep);
+                        }
+                    }
+
+                    return result;
+                }
+                else if (element.ValueKind == JsonValueKind.Array)
+                {
+                    var result = new List<object>();
+
+                    foreach (var item in element.EnumerateArray())
+                    {
+                        result.Add(FilterPropertiesRecursive(item, propertiesToKeep));
+                    }
+
+                    return result;
+                }
+                else
+                {
+                    return element.ToString();
+                }
             }
 
-            var conditionParts = _jsonHelper.ParseCondition(condition);
+            return jsonObject;
+        }
 
-            if (conditionParts == null || conditionParts.Length != 3)
+        public string PrintJson(JsonDocument jsonDocument)
+        {
+            using var stream = new MemoryStream();
+            var writerOptions = new JsonWriterOptions { Indented = true };
+            using (var writer = new Utf8JsonWriter(stream, writerOptions))
             {
-                throw new ArgumentException("Invalid key-value format. Use 'key operator value'");
+                jsonDocument.WriteTo(writer);
+            }
+            return Encoding.UTF8.GetString(stream.ToArray());
+        }
+
+        public async Task<List<string>> ExtractValuesByKeyAsync(JsonDocument jsonDocument, string key)
+        {
+            var values = new List<string>();
+            await ExtractValuesByKeyRecursiveAsync(jsonDocument.RootElement, key, values);
+            return values;
+        }
+
+        private Task ExtractValuesByKeyRecursiveAsync(JsonElement element, string key, List<string> values)
+        {
+            return Task.Run(() =>
+            {
+                if (element.ValueKind == JsonValueKind.Object)
+                {
+                    foreach (var property in element.EnumerateObject())
+                    {
+                        if (property.NameEquals(key))
+                        {
+                            values.Add(property.Value.ToString());
+                        }
+                        else if (property.Value.ValueKind == JsonValueKind.Object || property.Value.ValueKind == JsonValueKind.Array)
+                        {
+                            ExtractValuesByKeyRecursiveAsync(property.Value, key, values).Wait();
+                        }
+                    }
+                }
+                else if (element.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var item in element.EnumerateArray())
+                    {
+                        if (item.ValueKind == JsonValueKind.Object || item.ValueKind == JsonValueKind.Array)
+                        {
+                            ExtractValuesByKeyRecursiveAsync(item, key, values).Wait();
+                        }
+                    }
+                }
+            });
+        }
+
+        public string[] ParseCondition(string condition)
+        {
+            int operatorPos = condition.IndexOf("==");
+            string operatorSymbol = "==";
+            if (operatorPos == -1)
+            {
+                operatorPos = condition.IndexOf("!=");
+                operatorSymbol = "!=";
+            }
+            if (operatorPos == -1)
+            {
+                operatorPos = condition.IndexOf(">=");
+                operatorSymbol = ">=";
+            }
+            if (operatorPos == -1)
+            {
+                operatorPos = condition.IndexOf("<=");
+                operatorSymbol = "<=";
+            }
+            if (operatorPos == -1)
+            {
+                operatorPos = condition.IndexOf(">");
+                operatorSymbol = ">";
+            }
+            if (operatorPos == -1)
+            {
+                operatorPos = condition.IndexOf("<");
+                operatorSymbol = "<";
+            }
+            if (operatorPos == -1)
+            {
+                return null;
             }
 
-            var key = conditionParts[0];
-            var operatorSymbol = conditionParts[1];
-            var value = conditionParts[2];
+            var key = condition.Substring(0, operatorPos).Trim();
+            var value = condition.Substring(operatorPos + operatorSymbol.Length).Trim();
+            return new string[] { key, operatorSymbol, value };
+        }
 
-            if (_jsonHelper.CheckConditionInJsonElement(rootElement, key, operatorSymbol, value))
+        public bool CheckConditionInJsonElement(JsonElement element, string key, string operatorSymbol, string value)
+        {
+            if (element.ValueKind == JsonValueKind.Object)
             {
-                return jsonDocument;
+                foreach (var property in element.EnumerateObject())
+                {
+                    if (property.NameEquals(key) && IsConditionMet(property.Value, operatorSymbol, value))
+                    {
+                        return true;
+                    }
+                    if (property.Value.ValueKind == JsonValueKind.Object || property.Value.ValueKind == JsonValueKind.Array)
+                    {
+                        if (CheckConditionInJsonElement(property.Value, key, operatorSymbol, value))
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+            else if (element.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var item in element.EnumerateArray())
+                {
+                    if (item.ValueKind == JsonValueKind.Object || item.ValueKind == JsonValueKind.Array)
+                    {
+                        if (CheckConditionInJsonElement(item, key, operatorSymbol, value))
+                        {
+                            return true;
+                        }
+                    }
+                }
             }
 
-            return null;
+            return false;
+        }
+
+        private bool IsConditionMet(JsonElement element, string operatorSymbol, string value)
+        {
+            switch (element.ValueKind)
+            {
+                case JsonValueKind.String:
+                    var elementValue = element.GetString();
+                    return operatorSymbol switch
+                    {
+                        "==" => elementValue == value,
+                        "!=" => elementValue != value,
+                        _ => throw new ArgumentException($"Unsupported operator '{operatorSymbol}'")
+                    };
+                case JsonValueKind.Number:
+                    if (double.TryParse(value, out var doubleValue))
+                    {
+                        var elementNumber = element.GetDouble();
+                        return operatorSymbol switch
+                        {
+                            "==" => elementNumber == doubleValue,
+                            "!=" => elementNumber != doubleValue,
+                            ">" => elementNumber > doubleValue,
+                            "<" => elementNumber < doubleValue,
+                            ">=" => elementNumber >= doubleValue,
+                            "<=" => elementNumber <= doubleValue,
+                            _ => throw new ArgumentException($"Unsupported operator '{operatorSymbol}'")
+                        };
+                    }
+                    throw new ArgumentException($"Value '{value}' is not a valid number");
+                case JsonValueKind.True:
+                case JsonValueKind.False:
+                    if (bool.TryParse(value, out var boolValue))
+                    {
+                        var elementBool = element.GetBoolean();
+                        return operatorSymbol switch
+                        {
+                            "==" => elementBool == boolValue,
+                            "!=" => elementBool != boolValue,
+                            _ => throw new ArgumentException($"Unsupported operator '{operatorSymbol}'")
+                        };
+                    }
+                    throw new ArgumentException($"Value '{value}' is not a valid boolean");
+                default:
+                    throw new ArgumentException($"Unsupported value type for condition");
+            }
         }
     }
 }
