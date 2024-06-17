@@ -23,7 +23,6 @@ namespace FileOperations
             using var csvReader = new CsvReader(reader, config);
 
             var records = csvReader.GetRecords<dynamic>().ToList();
-
             Console.WriteLine($"Total records read: {records.Count}");
 
             var filteredRecords = new List<dynamic>();
@@ -31,45 +30,16 @@ namespace FileOperations
             foreach (var record in records)
             {
                 var recordDict = (IDictionary<string, object>)record;
-                bool recordMatches = true;
-
-                Console.WriteLine("Checking record:");
-                foreach (var kvp in recordDict)
+                bool recordMatches = criteria.All(criterion =>
                 {
-                    Console.WriteLine($"{kvp.Key} = {kvp.Value}");
-                }
-
-                foreach (var criterion in criteria)
-                {
-                    var key = criterion.Key.Trim();
-                    var value = criterion.Value.Trim();
-
-                    if (recordDict.ContainsKey(key))
-                    {
-                        var recordValue = recordDict[key]?.ToString().Trim();
-                        Console.WriteLine($"Checking {key}: {recordValue} == {value}");
-                        if (recordValue != value)
-                        {
-                            recordMatches = false;
-                            break;
-                        }
-                    }
-                    else
-                    {
-                        Console.WriteLine($"Key {key} not found in record.");
-                        recordMatches = false;
-                        break;
-                    }
-                }
+                    var key = criterion.Key;
+                    var value = criterion.Value;
+                    return recordDict.ContainsKey(key) && recordDict[key]?.ToString().Trim() == value;
+                });
 
                 if (recordMatches)
                 {
-                    Console.WriteLine("Record matches criteria.");
                     filteredRecords.Add(record);
-                }
-                else
-                {
-                    Console.WriteLine("Record does not match criteria.");
                 }
             }
 
@@ -87,23 +57,6 @@ namespace FileOperations
             {
                 Console.WriteLine("No records matched the criteria.");
             }
-        }
-
-        public List<dynamic> ReadCsv(string filePath)
-        {
-            using var reader = new StreamReader(filePath);
-            using var csvReader = new CsvReader(reader, CultureInfo.InvariantCulture);
-
-            var records = csvReader.GetRecords<dynamic>().ToList();
-            return records;
-        }
-
-        public void WriteCsv<T>(string filePath, List<T> records)
-        {
-            using var writer = new StreamWriter(filePath);
-            using var csvWriter = new CsvWriter(writer, CultureInfo.InvariantCulture);
-
-            csvWriter.WriteRecords(records);
         }
     }
 }
