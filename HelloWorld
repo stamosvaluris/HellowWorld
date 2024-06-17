@@ -1,29 +1,41 @@
-public static async Task<IEnumerable<dynamic>> FilterCsvAsync(Stream csvStream, Dictionary<string, string> criteria)
+public static async Task WriteCsvAsync(string outputFilePath, IEnumerable<dynamic> records)
 {
     var config = new CsvConfiguration(CultureInfo.InvariantCulture)
     {
-        IgnoreBlankLines = true,
-        BadDataFound = context => Console.WriteLine($"Bad data found at row {context.RawRecord}"),
-        MissingFieldFound = null
+        IgnoreBlankLines = true
     };
 
-    using var reader = new StreamReader(csvStream);
-    using var csvReader = new CsvReader(reader, config);
+    using var writer = new StreamWriter(outputFilePath);
+    using var csvWriter = new CsvWriter(writer, config);
 
-    var records = await csvReader.GetRecordsAsync<dynamic>().ToListAsync();
-    var filteredRecords = new List<dynamic>();
-
-    foreach (var record in records)
+    var recordList = records.Select(record => (IDictionary<string, object>)record).ToList();
+    foreach (var record in recordList)
     {
-        var recordDict = record as IDictionary<string, object>;
-        if (recordDict == null) continue;
-
-        bool recordMatches = criteria.All(c => recordDict.ContainsKey(c.Key) && recordDict[c.Key]?.ToString() == c.Value);
-        if (recordMatches)
+        foreach (var kvp in record)
         {
-            filteredRecords.Add(record);
+            csvWriter.WriteField(kvp.Value);
         }
+        await csvWriter.NextRecordAsync();
     }
+}
 
-    return filteredRecords;
+public static async Task WriteCsvAsync(Stream outputStream, IEnumerable<dynamic> records)
+{
+    var config = new CsvConfiguration(CultureInfo.InvariantCulture)
+    {
+        IgnoreBlankLines = true
+    };
+
+    using var writer = new StreamWriter(outputStream, leaveOpen: true);
+    using var csvWriter = new CsvWriter(writer, config);
+
+    var recordList = records.Select(record => (IDictionary<string, object>)record).ToList();
+    foreach (var record in recordList)
+    {
+        foreach (var kvp in record)
+        {
+            csvWriter.WriteField(kvp.Value);
+        }
+        await csvWriter.NextRecordAsync();
+    }
 }
