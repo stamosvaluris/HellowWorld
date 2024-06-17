@@ -1,104 +1,95 @@
-using System.Net.Http;
-using System.Text.Json;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
-using FileOperations;
 
-namespace FIS.Client.Services
+namespace FileOperations
 {
-    public class CpStaticDataService
+    public static class FileOperationsHelper
     {
-        private readonly HttpClient _httpClient;
-        private readonly string _baseUrl;
-        private readonly string _endpoint;
-        private readonly JsonHelper _jsonHelper;
-
-        public CpStaticDataService(HttpClient httpClient, string baseUrl, string endpoint)
+        public static async Task MoveFilesAsync(string destinationFolder, params string[] filePaths)
         {
-            _httpClient = httpClient;
-            _baseUrl = baseUrl;
-            _endpoint = endpoint;
-            _jsonHelper = new JsonHelper(); // Initialize JsonHelper
+            var tasks = filePaths.Select(filePath => Task.Run(() =>
+            {
+                var fileName = Path.GetFileName(filePath);
+                var destFilePath = Path.Combine(destinationFolder, fileName);
+                File.Move(filePath, destFilePath);
+            }));
+
+            await Task.WhenAll(tasks);
         }
 
-        public async Task<JsonDocument> GetCounterpartyStaticDataAsync(string token, string counterpartyName)
+        public static async Task MoveFilesAsync(string destinationFolder, IEnumerable<string> filePaths)
         {
-            var url = $"{_baseUrl}{_endpoint}{counterpartyName}";
-            _httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
-            var response = await _httpClient.GetAsync(url);
-            response.EnsureSuccessStatusCode();
-            var jsonString = await response.Content.ReadAsStringAsync();
-            return JsonDocument.Parse(jsonString);
+            var tasks = filePaths.Select(filePath => Task.Run(() =>
+            {
+                var fileName = Path.GetFileName(filePath);
+                var destFilePath = Path.Combine(destinationFolder, fileName);
+                File.Move(filePath, destFilePath);
+            }));
+
+            await Task.WhenAll(tasks);
         }
 
-        public async Task<JsonDocument> GetConditionalCounterpartyStaticDataAsync(string token, string counterpartyName, string condition)
+        public static async Task DeleteFilesAsync(params string[] filePaths)
         {
-            if (string.IsNullOrEmpty(counterpartyName))
+            var tasks = filePaths.Select(filePath => Task.Run(() => File.Delete(filePath)));
+            await Task.WhenAll(tasks);
+        }
+
+        public static async Task DeleteFilesAsync(IEnumerable<string> filePaths)
+        {
+            var tasks = filePaths.Select(filePath => Task.Run(() => File.Delete(filePath)));
+            await Task.WhenAll(tasks);
+        }
+
+        public static async Task DeleteFoldersAsync(params string[] folderPaths)
+        {
+            var tasks = folderPaths.Select(folderPath => Task.Run(() => Directory.Delete(folderPath, true)));
+            await Task.WhenAll(tasks);
+        }
+
+        public static async Task DeleteFoldersAsync(IEnumerable<string> folderPaths)
+        {
+            var tasks = folderPaths.Select(folderPath => Task.Run(() => Directory.Delete(folderPath, true)));
+            await Task.WhenAll(tasks);
+        }
+
+        public static async Task DeleteFolderContentsAsync(params string[] folderPaths)
+        {
+            var tasks = folderPaths.Select(folderPath => Task.Run(() =>
             {
-                // When no counterparty name is given, retrieve a list of JSONs
-                var url = $"{_baseUrl}{_endpoint}";
-                _httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
-                var response = await _httpClient.GetAsync(url);
-                response.EnsureSuccessStatusCode();
-                var jsonString = await response.Content.ReadAsStringAsync();
-                var jsonDocument = JsonDocument.Parse(jsonString);
-
-                // Filter each JSON object in the array
-                using var doc = JsonDocument.Parse(jsonString);
-                var jsonArray = doc.RootElement.EnumerateArray();
-                var filteredArray = new List<JsonElement>();
-
-                foreach (var jsonElement in jsonArray)
+                var directoryInfo = new DirectoryInfo(folderPath);
+                foreach (var file in directoryInfo.GetFiles())
                 {
-                    var rootElement = jsonElement;
-                    if (string.IsNullOrEmpty(condition))
-                    {
-                        filteredArray.Add(rootElement);
-                        continue;
-                    }
-
-                    var conditionParts = _jsonHelper.ParseCondition(condition);
-                    if (conditionParts == null || conditionParts.Length != 3)
-                        throw new ArgumentException("Invalid key-value format. Use 'key operator value'");
-
-                    var key = conditionParts[0];
-                    var operatorSymbol = conditionParts[1];
-                    var value = conditionParts[2];
-
-                    if (_jsonHelper.CheckConditionInJsonElement(rootElement, key, operatorSymbol, value))
-                    {
-                        filteredArray.Add(rootElement);
-                    }
+                    file.Delete();
                 }
+                foreach (var dir in directoryInfo.GetDirectories())
+                {
+                    dir.Delete(true);
+                }
+            }));
 
-                var filteredJson = JsonSerializer.Serialize(filteredArray);
-                return JsonDocument.Parse(filteredJson);
-            }
-            else
+            await Task.WhenAll(tasks);
+        }
+
+        public static async Task DeleteFolderContentsAsync(IEnumerable<string> folderPaths)
+        {
+            var tasks = folderPaths.Select(folderPath => Task.Run(() =>
             {
-                // When a specific counterparty name is given, retrieve a single JSON
-                var jsonDocument = await GetCounterpartyStaticDataAsync(token, counterpartyName);
-                var rootElement = jsonDocument.RootElement;
-
-                if (string.IsNullOrEmpty(condition))
+                var directoryInfo = new DirectoryInfo(folderPath);
+                foreach (var file in directoryInfo.GetFiles())
                 {
-                    return jsonDocument;
+                    file.Delete();
                 }
-
-                var conditionParts = _jsonHelper.ParseCondition(condition);
-                if (conditionParts == null || conditionParts.Length != 3)
-                    throw new ArgumentException("Invalid key-value format. Use 'key operator value'");
-
-                var key = conditionParts[0];
-                var operatorSymbol = conditionParts[1];
-                var value = conditionParts[2];
-
-                if (_jsonHelper.CheckConditionInJsonElement(rootElement, key, operatorSymbol, value))
+                foreach (var dir in directoryInfo.GetDirectories())
                 {
-                    return jsonDocument;
+                    dir.Delete(true);
                 }
+            }));
 
-                return null;
-            }
+            await Task.WhenAll(tasks);
         }
     }
 }
