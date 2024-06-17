@@ -1,105 +1,59 @@
-using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Text.Json;
 using System.Threading.Tasks;
+using CsvHelper;
+using CsvHelper.Configuration;
 
 namespace FileOperations
 {
-    public static class FileOperationsHelper
+    public static class CsvHelper
     {
-        public static async Task MoveFilesAsync(string destinationFolder, params string[] filePaths)
+        public static async Task FilterCsvAsync(string inputFilePath, string outputFilePath, Dictionary<string, string> criteria)
         {
-            var tasks = filePaths.Select(filePath => Task.Run(() =>
+            var config = new CsvConfiguration(CultureInfo.InvariantCulture)
             {
-                var fileName = Path.GetFileName(filePath);
-                var destFilePath = Path.Combine(destinationFolder, fileName);
-                File.Move(filePath, destFilePath);
-            }));
+                IgnoreBlankLines = true,
+                BadDataFound = context => Console.WriteLine($"Bad data found at row {context.RawRow}"),
+                MissingFieldFound = null
+            };
 
-            await Task.WhenAll(tasks);
-        }
+            using var reader = new StreamReader(inputFilePath);
+            using var csvReader = new CsvReader(reader, config);
+            var records = csvReader.GetRecords<dynamic>().ToList();
 
-        public static async Task MoveFilesAsync(string destinationFolder, IEnumerable<string> filePaths)
-        {
-            var tasks = filePaths.Select(filePath => Task.Run(() =>
+            var filteredRecords = new List<dynamic>();
+            foreach (var record in records)
             {
-                var fileName = Path.GetFileName(filePath);
-                var destFilePath = Path.Combine(destinationFolder, fileName);
-                File.Move(filePath, destFilePath);
-            }));
+                var recordDict = record as IDictionary<string, object>;
+                if (recordDict == null) continue;
 
-            await Task.WhenAll(tasks);
-        }
+                bool recordMatches = criteria.All(c => recordDict.ContainsKey(c.Key) && recordDict[c.Key]?.ToString() == c.Value);
 
-        public static async Task DeleteFilesAsync(params string[] filePaths)
-        {
-            var tasks = filePaths.Select(filePath => Task.Run(() => File.Delete(filePath)));
-            await Task.WhenAll(tasks);
-        }
-
-        public static async Task DeleteFilesAsync(IEnumerable<string> filePaths)
-        {
-            var tasks = filePaths.Select(filePath => Task.Run(() => File.Delete(filePath)));
-            await Task.WhenAll(tasks);
-        }
-
-        public static async Task DeleteFoldersAsync(params string[] folderPaths)
-        {
-            var tasks = folderPaths.Select(folderPath => Task.Run(() => Directory.Delete(folderPath, true)));
-            await Task.WhenAll(tasks);
-        }
-
-        public static async Task DeleteFoldersAsync(IEnumerable<string> folderPaths)
-        {
-            var tasks = folderPaths.Select(folderPath => Task.Run(() => Directory.Delete(folderPath, true)));
-            await Task.WhenAll(tasks);
-        }
-
-        public static async Task DeleteFolderContentsAsync(params string[] folderPaths)
-        {
-            var tasks = folderPaths.Select(folderPath => Task.Run(() =>
-            {
-                var directoryInfo = new DirectoryInfo(folderPath);
-                foreach (var file in directoryInfo.GetFiles())
+                if (recordMatches)
                 {
-                    file.Delete();
+                    filteredRecords.Add(record);
                 }
-                foreach (var dir in directoryInfo.GetDirectories())
-                {
-                    dir.Delete(true);
-                }
-            }));
-
-            await Task.WhenAll(tasks);
-        }
-
-        public static async Task DeleteFolderContentsAsync(IEnumerable<string> folderPaths)
-        {
-            var tasks = folderPaths.Select(folderPath => Task.Run(() =>
-            {
-                var directoryInfo = new DirectoryInfo(folderPath);
-                foreach (var file in directoryInfo.GetFiles())
-                {
-                    file.Delete();
-                }
-                foreach (var dir in directoryInfo.GetDirectories())
-                {
-                    dir.Delete(true);
-                }
-            }));
-
-            await Task.WhenAll(tasks);
-        }
-
-        public static async Task WriteFileAsync(string folderPath, string fileName, string content, string fileType)
-        {
-            var filePath = Path.Combine(folderPath, $"{fileName}.{fileType}");
-            using (var writer = new StreamWriter(filePath))
-            {
-                await writer.WriteAsync(content);
             }
+
+            using var writer = new StreamWriter(outputFilePath);
+            using var csvWriter = new CsvWriter(writer, config);
+            await csvWriter.WriteRecordsAsync(filteredRecords);
+        }
+
+        public static async Task WriteCsvAsync(string folderPath, string fileName, IEnumerable<dynamic> records)
+        {
+            var config = new CsvConfiguration(CultureInfo.InvariantCulture)
+            {
+                IgnoreBlankLines = true
+            };
+
+            using var writer = new StringWriter();
+            using var csvWriter = new CsvWriter(writer, config);
+            await csvWriter.WriteRecordsAsync(records);
+
+            await FileOperationsHelper.WriteFileAsync(folderPath, fileName, writer.ToString(), "csv");
         }
     }
 }
