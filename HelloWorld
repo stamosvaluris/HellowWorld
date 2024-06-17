@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
@@ -7,6 +8,126 @@ namespace FileOperations
 {
     public class JsonHelper
     {
+        public string[] ParseCondition(string condition)
+        {
+            int operatorPos = condition.IndexOf("==");
+            string operatorSymbol = "==";
+            if (operatorPos == -1)
+            {
+                operatorPos = condition.IndexOf("!=");
+                operatorSymbol = "!=";
+            }
+            if (operatorPos == -1)
+            {
+                operatorPos = condition.IndexOf(">=");
+                operatorSymbol = ">=";
+            }
+            if (operatorPos == -1)
+            {
+                operatorPos = condition.IndexOf("<=");
+                operatorSymbol = "<=";
+            }
+            if (operatorPos == -1)
+            {
+                operatorPos = condition.IndexOf(">");
+                operatorSymbol = ">";
+            }
+            if (operatorPos == -1)
+            {
+                operatorPos = condition.IndexOf("<");
+                operatorSymbol = "<";
+            }
+            if (operatorPos == -1)
+            {
+                return null;
+            }
+
+            var key = condition.Substring(0, operatorPos).Trim();
+            var value = condition.Substring(operatorPos + operatorSymbol.Length).Trim();
+            return new string[] { key, operatorSymbol, value };
+        }
+
+        public bool CheckConditionInJsonElement(JsonElement element, string key, string operatorSymbol, string value)
+        {
+            if (element.ValueKind == JsonValueKind.Object)
+            {
+                foreach (var property in element.EnumerateObject())
+                {
+                    if (property.NameEquals(key) && IsConditionMet(property.Value, operatorSymbol, value))
+                    {
+                        return true;
+                    }
+                    if (property.Value.ValueKind == JsonValueKind.Object || property.Value.ValueKind == JsonValueKind.Array)
+                    {
+                        if (CheckConditionInJsonElement(property.Value, key, operatorSymbol, value))
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+            else if (element.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var item in element.EnumerateArray())
+                {
+                    if (item.ValueKind == JsonValueKind.Object || item.ValueKind == JsonValueKind.Array)
+                    {
+                        if (CheckConditionInJsonElement(item, key, operatorSymbol, value))
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+            return false;
+        }
+
+        private bool IsConditionMet(JsonElement element, string operatorSymbol, string value)
+        {
+            switch (element.ValueKind)
+            {
+                case JsonValueKind.String:
+                    var elementValue = element.GetString();
+                    return operatorSymbol switch
+                    {
+                        "==" => elementValue == value,
+                        "!=" => elementValue != value,
+                        _ => throw new ArgumentException($"Unsupported operator '{operatorSymbol}'")
+                    };
+                case JsonValueKind.Number:
+                    if (double.TryParse(value, out var doubleValue))
+                    {
+                        var elementNumber = element.GetDouble();
+                        return operatorSymbol switch
+                        {
+                            "==" => elementNumber == doubleValue,
+                            "!=" => elementNumber != doubleValue,
+                            ">" => elementNumber > doubleValue,
+                            "<" => elementNumber < doubleValue,
+                            ">=" => elementNumber >= doubleValue,
+                            "<=" => elementNumber <= doubleValue,
+                            _ => throw new ArgumentException($"Unsupported operator '{operatorSymbol}'")
+                        };
+                    }
+                    throw new ArgumentException($"Value '{value}' is not a valid number");
+                case JsonValueKind.True:
+                case JsonValueKind.False:
+                    if (bool.TryParse(value, out var boolValue))
+                    {
+                        var elementBool = element.GetBoolean();
+                        return operatorSymbol switch
+                        {
+                            "==" => elementBool == boolValue,
+                            "!=" => elementBool != boolValue,
+                            _ => throw new ArgumentException($"Unsupported operator '{operatorSymbol}'")
+                        };
+                    }
+                    throw new ArgumentException($"Value '{value}' is not a valid boolean");
+                default:
+                    throw new ArgumentException($"Unsupported value type for condition");
+            }
+        }
+
         public dynamic ReadJsonAsDynamic(string filePath)
         {
             var jsonString = File.ReadAllText(filePath);
