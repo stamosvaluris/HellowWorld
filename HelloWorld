@@ -1,65 +1,62 @@
-using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.IO;
-using System.Linq;
-using System.Threading.Tasks;
-using CsvHelper;
-using CsvHelper.Configuration;
+using System.Text.Json;
 
 namespace FileOperations
 {
-    public class CsvHelper
+    public class JsonHelper
     {
-        public async Task FilterCsvAsync(string inputFilePath, string outputFilePath, Dictionary<string, string> criteria)
+        public dynamic ReadJsonAsDynamic(string filePath)
         {
-            var config = new CsvConfiguration(CultureInfo.InvariantCulture)
+            var jsonString = File.ReadAllText(filePath);
+            return JsonSerializer.Deserialize<dynamic>(jsonString, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        }
+
+        public void WriteJson<T>(string filePath, T obj)
+        {
+            var options = new JsonSerializerOptions { WriteIndented = true };
+            var jsonString = JsonSerializer.Serialize(obj, options);
+            File.WriteAllText(filePath, jsonString);
+        }
+
+        public void FilterProperties(string inputFilePath, string outputFilePath, List<string> propertiesToKeep)
+        {
+            dynamic jsonObject = ReadJsonAsDynamic(inputFilePath);
+            var filteredObject = FilterPropertiesRecursive(jsonObject, propertiesToKeep);
+            WriteJson(outputFilePath, filteredObject);
+        }
+
+        private dynamic FilterPropertiesRecursive(dynamic jsonObject, List<string> propertiesToKeep)
+        {
+            if (jsonObject is JsonElement element)
             {
-                IgnoreBlankLines = true,
-                BadDataFound = context => Console.WriteLine($"Bad data found: {context.RawRecord}"),
-                MissingFieldFound = null
-            };
-
-            using var reader = new StreamReader(inputFilePath);
-            using var csvReader = new CsvReader(reader, config);
-
-            var records = csvReader.GetRecords<dynamic>().ToList();
-            Console.WriteLine($"Total records read: {records.Count}");
-
-            var filteredRecords = new List<dynamic>();
-
-            foreach (var record in records)
-            {
-                var recordDict = record as IDictionary<string, object>;
-                if (recordDict == null) continue;
-
-                bool recordMatches = criteria.All(criterion =>
+                if (element.ValueKind == JsonValueKind.Object)
                 {
-                    var key = criterion.Key;
-                    var value = criterion.Value;
-                    return recordDict.ContainsKey(key) && recordDict[key]?.ToString().Trim() == value;
-                });
-
-                if (recordMatches)
+                    var result = new Dictionary<string, object>();
+                    foreach (var property in element.EnumerateObject())
+                    {
+                        if (propertiesToKeep.Contains(property.Name))
+                        {
+                            result[property.Name] = FilterPropertiesRecursive(property.Value, propertiesToKeep);
+                        }
+                    }
+                    return result;
+                }
+                else if (element.ValueKind == JsonValueKind.Array)
                 {
-                    filteredRecords.Add(record);
+                    var result = new List<object>();
+                    foreach (var item in element.EnumerateArray())
+                    {
+                        result.Add(FilterPropertiesRecursive(item, propertiesToKeep));
+                    }
+                    return result;
+                }
+                else
+                {
+                    return element.ToString();
                 }
             }
-
-            Console.WriteLine($"Total records after filtering: {filteredRecords.Count}");
-
-            await using var writer = new StreamWriter(outputFilePath);
-            await using var csvWriter = new CsvWriter(writer, CultureInfo.InvariantCulture);
-
-            if (filteredRecords.Any())
-            {
-                await csvWriter.WriteRecordsAsync(filteredRecords);
-                Console.WriteLine("Filtered records written to output file.");
-            }
-            else
-            {
-                Console.WriteLine("No records matched the criteria.");
-            }
+            return jsonObject;
         }
     }
 }
