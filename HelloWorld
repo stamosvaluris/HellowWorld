@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.Json;
 using System.Threading.Tasks;
 
 namespace FileOperations
@@ -90,6 +91,15 @@ namespace FileOperations
             }));
 
             await Task.WhenAll(tasks);
+        }
+
+        public static async Task WriteFileAsync(string folderPath, string fileName, string content, string fileType)
+        {
+            var filePath = Path.Combine(folderPath, $"{fileName}.{fileType}");
+            using (var writer = new StreamWriter(filePath))
+            {
+                await writer.WriteAsync(content);
+            }
         }
     }
 }
