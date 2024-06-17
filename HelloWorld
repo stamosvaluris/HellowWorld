@@ -1,239 +1,59 @@
-using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
-using System.Text.Json;
+using System.Linq;
 using System.Threading.Tasks;
+using CsvHelper;
+using CsvHelper.Configuration;
 
 namespace FileOperations
 {
-    public class JsonHelper
+    public static class CsvHelper
     {
-        public string[] ParseCondition(string condition)
+        public static async Task FilterCsvAsync(string inputFilePath, string outputFilePath, Dictionary<string, string> criteria)
         {
-            int operatorPos = condition.IndexOf("==");
-            string operatorSymbol = "==";
-            if (operatorPos == -1)
+            var config = new CsvConfiguration(CultureInfo.InvariantCulture)
             {
-                operatorPos = condition.IndexOf("!=");
-                operatorSymbol = "!=";
-            }
-            if (operatorPos == -1)
-            {
-                operatorPos = condition.IndexOf(">=");
-                operatorSymbol = ">=";
-            }
-            if (operatorPos == -1)
-            {
-                operatorPos = condition.IndexOf("<=");
-                operatorSymbol = "<=";
-            }
-            if (operatorPos == -1)
-            {
-                operatorPos = condition.IndexOf(">");
-                operatorSymbol = ">";
-            }
-            if (operatorPos == -1)
-            {
-                operatorPos = condition.IndexOf("<");
-                operatorSymbol = "<";
-            }
-            if (operatorPos == -1)
-            {
-                return null;
-            }
+                IgnoreBlankLines = true,
+                BadDataFound = context => Console.WriteLine($"Bad data found at row {context.RawRow}"),
+                MissingFieldFound = null
+            };
 
-            var key = condition.Substring(0, operatorPos).Trim();
-            var value = condition.Substring(operatorPos + operatorSymbol.Length).Trim();
-            return new string[] { key, operatorSymbol, value };
-        }
+            using var reader = new StreamReader(inputFilePath);
+            using var csvReader = new CsvReader(reader, config);
+            var records = csvReader.GetRecords<dynamic>().ToList();
 
-        public bool CheckConditionInJsonElement(JsonElement element, string key, string operatorSymbol, string value)
-        {
-            if (element.ValueKind == JsonValueKind.Object)
+            var filteredRecords = new List<dynamic>();
+            foreach (var record in records)
             {
-                foreach (var property in element.EnumerateObject())
+                var recordDict = record as IDictionary<string, object>;
+                if (recordDict == null) continue;
+
+                bool recordMatches = criteria.All(c => recordDict.ContainsKey(c.Key) && recordDict[c.Key]?.ToString() == c.Value);
+
+                if (recordMatches)
                 {
-                    if (property.NameEquals(key) && IsConditionMet(property.Value, operatorSymbol, value))
-                    {
-                        return true;
-                    }
-                    if (property.Value.ValueKind == JsonValueKind.Object || property.Value.ValueKind == JsonValueKind.Array)
-                    {
-                        if (CheckConditionInJsonElement(property.Value, key, operatorSymbol, value))
-                        {
-                            return true;
-                        }
-                    }
+                    filteredRecords.Add(record);
                 }
             }
-            else if (element.ValueKind == JsonValueKind.Array)
+
+            using var writer = new StreamWriter(outputFilePath);
+            using var csvWriter = new CsvWriter(writer, config);
+            await csvWriter.WriteRecordsAsync(filteredRecords);
+        }
+
+        public static async Task WriteCsvAsync(string folderPath, string fileName, IEnumerable<dynamic> records)
+        {
+            var config = new CsvConfiguration(CultureInfo.InvariantCulture)
             {
-                foreach (var item in element.EnumerateArray())
-                {
-                    if (item.ValueKind == JsonValueKind.Object || item.ValueKind == JsonValueKind.Array)
-                    {
-                        if (CheckConditionInJsonElement(item, key, operatorSymbol, value))
-                        {
-                            return true;
-                        }
-                    }
-                }
-            }
-            return false;
-        }
+                IgnoreBlankLines = true
+            };
 
-        private bool IsConditionMet(JsonElement element, string operatorSymbol, string value)
-        {
-            switch (element.ValueKind)
-            {
-                case JsonValueKind.String:
-                    var elementValue = element.GetString();
-                    return operatorSymbol switch
-                    {
-                        "==" => elementValue == value,
-                        "!=" => elementValue != value,
-                        _ => throw new ArgumentException($"Unsupported operator '{operatorSymbol}'")
-                    };
-                case JsonValueKind.Number:
-                    if (double.TryParse(value, out var doubleValue))
-                    {
-                        var elementNumber = element.GetDouble();
-                        return operatorSymbol switch
-                        {
-                            "==" => elementNumber == doubleValue,
-                            "!=" => elementNumber != doubleValue,
-                            ">" => elementNumber > doubleValue,
-                            "<" => elementNumber < doubleValue,
-                            ">=" => elementNumber >= doubleValue,
-                            "<=" => elementNumber <= doubleValue,
-                            _ => throw new ArgumentException($"Unsupported operator '{operatorSymbol}'")
-                        };
-                    }
-                    throw new ArgumentException($"Value '{value}' is not a valid number");
-                case JsonValueKind.True:
-                case JsonValueKind.False:
-                    if (bool.TryParse(value, out var boolValue))
-                    {
-                        var elementBool = element.GetBoolean();
-                        return operatorSymbol switch
-                        {
-                            "==" => elementBool == boolValue,
-                            "!=" => elementBool != boolValue,
-                            _ => throw new ArgumentException($"Unsupported operator '{operatorSymbol}'")
-                        };
-                    }
-                    throw new ArgumentException($"Value '{value}' is not a valid boolean");
-                default:
-                    throw new ArgumentException($"Unsupported value type for condition");
-            }
-        }
+            using var writer = new StringWriter();
+            using var csvWriter = new CsvWriter(writer, config);
+            await csvWriter.WriteRecordsAsync(records);
 
-        public dynamic ReadJsonAsDynamic(string filePath)
-        {
-            var jsonString = File.ReadAllText(filePath);
-            return JsonSerializer.Deserialize<dynamic>(jsonString, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-        }
-
-        public void WriteJson(string filePath, dynamic obj)
-        {
-            var options = new JsonSerializerOptions { WriteIndented = true };
-            var jsonString = JsonSerializer.Serialize(obj, options);
-            File.WriteAllText(filePath, jsonString);
-        }
-
-        public void FilterProperties(string inputFilePath, string outputFilePath, List<string> propertiesToKeep)
-        {
-            dynamic jsonObject = ReadJsonAsDynamic(inputFilePath);
-            var filteredObject = FilterPropertiesRecursive(jsonObject, propertiesToKeep);
-            WriteJson(outputFilePath, filteredObject);
-        }
-
-        private dynamic FilterPropertiesRecursive(dynamic jsonObject, List<string> propertiesToKeep)
-        {
-            if (jsonObject is JsonElement element)
-            {
-                if (element.ValueKind == JsonValueKind.Object)
-                {
-                    var result = new Dictionary<string, object>();
-                    foreach (var property in element.EnumerateObject())
-                    {
-                        if (propertiesToKeep.Contains(property.Name))
-                        {
-                            result[property.Name] = FilterPropertiesRecursive(property.Value, propertiesToKeep);
-                        }
-                    }
-                    return result;
-                }
-                else if (element.ValueKind == JsonValueKind.Array)
-                {
-                    var result = new List<object>();
-                    foreach (var item in element.EnumerateArray())
-                    {
-                        result.Add(FilterPropertiesRecursive(item, propertiesToKeep));
-                    }
-                    return result;
-                }
-                else
-                {
-                    return element.ToString();
-                }
-            }
-            return jsonObject;
-        }
-
-        public string PrintJson(JsonDocument jsonDocument)
-        {
-            using var stream = new MemoryStream();
-            var writerOptions = new JsonWriterOptions { Indented = true };
-            using (var writer = new Utf8JsonWriter(stream, writerOptions))
-            {
-                jsonDocument.WriteTo(writer);
-            }
-            return Encoding.UTF8.GetString(stream.ToArray());
-        }
-
-        public async Task<List<string>> ExtractValuesByKeyAsync(JsonDocument jsonDocument, string key)
-        {
-            var values = new List<string>();
-            await ExtractValuesByKeyRecursiveAsync(jsonDocument.RootElement, key, values);
-            return values;
-        }
-
-        private Task ExtractValuesByKeyRecursiveAsync(JsonElement element, string key, List<string> values)
-        {
-            return Task.Run(() =>
-            {
-                if (element.ValueKind == JsonValueKind.Object)
-                {
-                    foreach (var property in element.EnumerateObject())
-                    {
-                        if (property.NameEquals(key))
-                        {
-                            values.Add(property.Value.ToString());
-                        }
-                        else if (property.Value.ValueKind == JsonValueKind.Object || property.Value.ValueKind == JsonValueKind.Array)
-                        {
-                            ExtractValuesByKeyRecursiveAsync(property.Value, key, values).Wait();
-                        }
-                    }
-                }
-                else if (element.ValueKind == JsonValueKind.Array)
-                {
-                    foreach (var item in element.EnumerateArray())
-                    {
-                        if (item.ValueKind == JsonValueKind.Object || item.ValueKind == JsonValueKind.Array)
-                        {
-                            ExtractValuesByKeyRecursiveAsync(item, key, values).Wait();
-                        }
-                    }
-                }
-            });
-        }
-
-        public static async Task WriteJsonAsync(string folderPath, string fileName, JsonDocument jsonDocument)
-        {
-            var jsonString = JsonSerializer.Serialize(jsonDocument, new JsonSerializerOptions { WriteIndented = true });
-            await FileOperationsHelper.WriteFileAsync(folderPath, fileName, jsonString, "json");
+            await FileOperationsHelper.WriteFileAsync(folderPath, fileName, writer.ToString(), "csv");
         }
     }
 }
