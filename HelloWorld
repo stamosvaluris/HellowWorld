@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using CsvHelper;
 using CsvHelper.Configuration;
 
@@ -10,7 +11,7 @@ namespace FileOperations
 {
     public class CsvHelper
     {
-        public void FilterCsv(string inputFilePath, string outputFilePath, Dictionary<string, string> criteria)
+        public async Task FilterCsvAsync(string inputFilePath, string outputFilePath, Dictionary<string, string> criteria)
         {
             var config = new CsvConfiguration(CultureInfo.InvariantCulture)
             {
@@ -47,12 +48,12 @@ namespace FileOperations
 
             Console.WriteLine($"Total records after filtering: {filteredRecords.Count}");
 
-            using var writer = new StreamWriter(outputFilePath);
-            using var csvWriter = new CsvWriter(writer, CultureInfo.InvariantCulture);
+            await using var writer = new StreamWriter(outputFilePath);
+            await using var csvWriter = new CsvWriter(writer, CultureInfo.InvariantCulture);
 
             if (filteredRecords.Any())
             {
-                csvWriter.WriteRecords(filteredRecords);
+                await csvWriter.WriteRecordsAsync(filteredRecords);
                 Console.WriteLine("Filtered records written to output file.");
             }
             else
