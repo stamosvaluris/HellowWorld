@@ -15,7 +15,7 @@ namespace FileOperations
             var config = new CsvConfiguration(CultureInfo.InvariantCulture)
             {
                 IgnoreBlankLines = true,
-                BadDataFound = context => Console.WriteLine($"Bad data found at field: {context.Field}"),
+                BadDataFound = context => Console.WriteLine($"Bad data found at row {context.RawRow}"),
                 MissingFieldFound = null
             };
 
@@ -31,12 +31,6 @@ namespace FileOperations
             {
                 var recordDict = record as IDictionary<string, object>;
                 if (recordDict == null) continue;
-
-                Console.WriteLine("Record:");
-                foreach (var kvp in recordDict)
-                {
-                    Console.WriteLine($"{kvp.Key}: {kvp.Value}");
-                }
 
                 bool recordMatches = criteria.All(criterion =>
                 {
