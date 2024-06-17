@@ -1,23 +1,50 @@
-public static async Task WriteCsvAsync(Stream outputStream, IEnumerable<dynamic> records)
+using CdsClient;
+using Clients.Sftp;
+using Helpers;
+using FileOperations;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Threading.Tasks;
+
+public static class Program
 {
-    var config = new CsvConfiguration(CultureInfo.InvariantCulture)
+    private static async Task Main(string[] args)
     {
-        IgnoreBlankLines = true,
-    };
+        Configuration config = Configuration.Load();
+        SftpClient client = new SftpClient();
+        client.Connect(config.Host, config.Port, config.Username, config.Password);
+        client.ChangeDirectory(config.Files);
+        PathHelper.GetTempFolderPath();
+        Console.WriteLine(PathHelper.GetTempFolderPath());
+        client.GetLastUploadedZipFile(PathHelper.GetTempFolderPath());
+        List<string> extractedFiles = ZipHelper.ExtractedLastImportedZipFile(PathHelper.GetTempFolderPath());
+        List<string> keepOnly = new List<string> { "Date", "ShortName", "Tier", "PrimaryCurve", "PrimaryCoupon", "Tenor", "ParSpread" };
+        var filteredColumns = await FileOperations.CsvHelper.KeepOnlyColumnsAsync(extractedFiles[0], keepOnly);
 
-    using var writer = new StreamWriter(outputStream);
-    using var csvWriter = new CsvWriter(writer, config);
-
-    // Convert dynamic records to a list of dictionaries
-    var recordList = records.Select(record => (IDictionary<string, object>)record).ToList();
-
-    // Write records to CSV
-    foreach (var record in recordList)
-    {
-        foreach (var kvp in record)
+        MemoryStream memoryStream = new MemoryStream();
+        try
         {
-            csvWriter.WriteField(kvp.Value);
+            await FileOperations.CsvHelper.WriteCsvAsync(memoryStream, filteredColumns);
+            memoryStream.Position = 0; // Ensure the stream is at the beginning for reading
+
+            var criteria = new Dictionary<string, string>
+            {
+                { }
+            };
+
+            memoryStream.Position = 0; // Reset position before reading for filtering
+            var filteredRecords = await FileOperations.CsvHelper.FilterCsvAsync(memoryStream, criteria);
+
+            memoryStream.Position = 0; // Reset position before writing the final output
+            await FileOperations.CsvHelper.WriteCsvAsync("C:.csv", filteredRecords);
         }
-        await csvWriter.NextRecordAsync();
+        finally
+        {
+            memoryStream.Dispose(); // Ensure the stream is disposed of properly
+        }
+
+        Console.WriteLine($"###########  --->> {extractedFiles[0]}");
+        client.Disconnect();
     }
 }
