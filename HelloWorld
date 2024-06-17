@@ -1,62 +1,63 @@
-using System.Collections.Generic;
-using System.IO;
+using System;
+using System.Net.Http;
 using System.Text.Json;
+using System.Threading.Tasks;
+using FileOperations; // Assuming JsonHelper is in FileOperations namespace
 
-namespace FileOperations
+namespace FIS.Client.Services
 {
-    public class JsonHelper
+    public class CpStaticDataService
     {
-        public dynamic ReadJsonAsDynamic(string filePath)
+        private readonly HttpClient _httpClient;
+        private readonly string _baseUrl;
+        private readonly string _endpoint;
+        private readonly JsonHelper _jsonHelper;
+
+        public CpStaticDataService(HttpClient httpClient, string baseUrl, string endpoint)
         {
-            var jsonString = File.ReadAllText(filePath);
-            return JsonSerializer.Deserialize<dynamic>(jsonString, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            _httpClient = httpClient;
+            _baseUrl = baseUrl;
+            _endpoint = endpoint;
+            _jsonHelper = new JsonHelper(); // Initialize JsonHelper
         }
 
-        public void WriteJson<T>(string filePath, T obj)
+        public async Task<JsonDocument> GetCounterpartyStaticDataAsync(string token, string counterpartyName)
         {
-            var options = new JsonSerializerOptions { WriteIndented = true };
-            var jsonString = JsonSerializer.Serialize(obj, options);
-            File.WriteAllText(filePath, jsonString);
+            var url = $"{_baseUrl}{_endpoint}{counterpartyName}";
+            _httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+            var response = await _httpClient.GetAsync(url);
+            response.EnsureSuccessStatusCode();
+            var jsonString = await response.Content.ReadAsStringAsync();
+            return JsonDocument.Parse(jsonString);
         }
 
-        public void FilterProperties(string inputFilePath, string outputFilePath, List<string> propertiesToKeep)
+        public async Task<JsonDocument> GetConditionalCounterpartyStaticDataAsync(string token, string counterpartyName, string condition)
         {
-            dynamic jsonObject = ReadJsonAsDynamic(inputFilePath);
-            var filteredObject = FilterPropertiesRecursive(jsonObject, propertiesToKeep);
-            WriteJson(outputFilePath, filteredObject);
-        }
+            var jsonDocument = await GetCounterpartyStaticDataAsync(token, counterpartyName);
+            var rootElement = jsonDocument.RootElement;
 
-        private dynamic FilterPropertiesRecursive(dynamic jsonObject, List<string> propertiesToKeep)
-        {
-            if (jsonObject is JsonElement element)
+            if (string.IsNullOrEmpty(condition))
             {
-                if (element.ValueKind == JsonValueKind.Object)
-                {
-                    var result = new Dictionary<string, object>();
-                    foreach (var property in element.EnumerateObject())
-                    {
-                        if (propertiesToKeep.Contains(property.Name))
-                        {
-                            result[property.Name] = FilterPropertiesRecursive(property.Value, propertiesToKeep);
-                        }
-                    }
-                    return result;
-                }
-                else if (element.ValueKind == JsonValueKind.Array)
-                {
-                    var result = new List<object>();
-                    foreach (var item in element.EnumerateArray())
-                    {
-                        result.Add(FilterPropertiesRecursive(item, propertiesToKeep));
-                    }
-                    return result;
-                }
-                else
-                {
-                    return element.ToString();
-                }
+                return jsonDocument;
             }
-            return jsonObject;
+
+            var conditionParts = _jsonHelper.ParseCondition(condition);
+
+            if (conditionParts == null || conditionParts.Length != 3)
+            {
+                throw new ArgumentException("Invalid key-value format. Use 'key operator value'");
+            }
+
+            var key = conditionParts[0];
+            var operatorSymbol = conditionParts[1];
+            var value = conditionParts[2];
+
+            if (_jsonHelper.CheckConditionInJsonElement(rootElement, key, operatorSymbol, value))
+            {
+                return jsonDocument;
+            }
+
+            return null;
         }
     }
 }
