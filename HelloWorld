@@ -78,7 +78,26 @@ namespace FileOperations
             using var writer = new StreamWriter(outputFilePath);
             using var csvWriter = new CsvWriter(writer, config);
 
-            await csvWriter.WriteRecordsAsync(records);
+            var headersWritten = false;
+            foreach (var record in records)
+            {
+                var recordDict = record as IDictionary<string, object>;
+                if (!headersWritten)
+                {
+                    foreach (var key in recordDict.Keys)
+                    {
+                        csvWriter.WriteField(key);
+                    }
+                    await csvWriter.NextRecordAsync();
+                    headersWritten = true;
+                }
+
+                foreach (var value in recordDict.Values)
+                {
+                    csvWriter.WriteField(value);
+                }
+                await csvWriter.NextRecordAsync();
+            }
         }
 
         public static async Task WriteCsvAsync(Stream outputStream, IEnumerable<dynamic> records)
@@ -91,7 +110,26 @@ namespace FileOperations
             using var writer = new StreamWriter(outputStream, leaveOpen: true);
             using var csvWriter = new CsvWriter(writer, config);
 
-            await csvWriter.WriteRecordsAsync(records);
+            var headersWritten = false;
+            foreach (var record in records)
+            {
+                var recordDict = record as IDictionary<string, object>;
+                if (!headersWritten)
+                {
+                    foreach (var key in recordDict.Keys)
+                    {
+                        csvWriter.WriteField(key);
+                    }
+                    await csvWriter.NextRecordAsync();
+                    headersWritten = true;
+                }
+
+                foreach (var value in recordDict.Values)
+                {
+                    csvWriter.WriteField(value);
+                }
+                await csvWriter.NextRecordAsync();
+            }
         }
 
         public static async Task<IEnumerable<dynamic>> KeepOnlyColumnsAsync(string inputFilePath, List<string> columnsToKeep)
@@ -194,14 +232,6 @@ namespace FileOperations
 
 
 
-using CdsClient;
-using Clients.Sftp;
-using Helpers;
-using FileOperations;
-using System.Collections.Generic;
-using System.IO;
-using System.Threading.Tasks;
-
 public static class Program
 {
     private static async Task Main(string[] args)
@@ -224,20 +254,11 @@ public static class Program
 
             var criteria = new Dictionary<string, string>
             {
-    
+            
             };
 
             memoryStream.Position = 0; // Reset position before reading for filtering
             var filteredRecords = await FileOperations.CsvHelper.FilterCsvAsync(memoryStream, criteria);
 
             memoryStream.Position = 0; // Reset position before writing the final output
-            using (var fileStream = new FileStream(@"C:\\Temp\output.csv", FileMode.Create, FileAccess.Write))
-            {
-                await FileOperations.CsvHelper.WriteCsvAsync(fileStream, filteredRecords);
-            }
-        }
-
-        Console.WriteLine($"Extracted file: {extractedFiles[0]}");
-        client.Disconnect();
-    }
-}
+            using (var fileStream = new FileStream(@"C:\UTemp\output.csv", FileMode.Create, FileAccess
