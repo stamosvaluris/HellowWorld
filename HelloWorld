@@ -1,4 +1,47 @@
-using System.Collections.Generic;
+using CdsClient;
+using Clients.SFtp;
+using Helpers;
+using FileOperations;
+
+public static class Program
+{
+    public static async Task Main(string[] args)
+    {
+        Configuration config = Configuration.Load();
+        SFtpClient client = new SFtpClient();
+        client.Connect(config.Host, config.Port, config.Username, config.Password);
+        client.ChangeDirectory(config.Files);
+        PathHelper.GetTempFolderPath();
+        Console.WriteLine(PathHelper.GetTempFolderPath());
+        client.GetLastUploadedZipFile(PathHelper.GetTempFolderPath());
+        List<string> extractedFiles = ZipHelper.ExtractLastImportedZipFile(PathHelper.GetTempFolderPath());
+        List<string> keepOnly = new List<string> { "Date", "ShortName", "Tier", "PrimaryCurve", "PrimaryCoupon", "Tenor", "ParSpread" };
+        var filteredColumns = await FileOperations.CsvHelper.KeepOnlyColumnsAsync(extractedFiles[0], keepOnly);
+
+        using (var memoryStream = new MemoryStream())
+        {
+            await FileOperations.CsvHelper.WriteCsvAsync(memoryStream, filteredColumns);
+            memoryStream.Position = 0; // Ensure the stream is at the beginning for reading
+
+            var criteria = new Dictionary<string, string>
+            {
+                
+            };
+
+            memoryStream.Position = 0; // Reset position before reading for filtering
+            var filteredRecords = await FileOperations.CsvHelper.FilterCsvAsync(memoryStream, criteria);
+
+            memoryStream.Position = 0; // Reset position before writing the final output
+            using (var fileStream = new FileStream("Crepos\\CDS Client\\Temp\\output.csv", FileMode.Create, FileAccess.Write))
+            {
+                await FileOperations.CsvHelper.WriteCsvAsync(fileStream, filteredRecords);
+            }
+        }
+
+        Console.WriteLine($"Filtered CSV saved to: C:\\User\Temp\\output.csv");
+        client.Disconnect();
+    }
+}using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
