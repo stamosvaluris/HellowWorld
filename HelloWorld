@@ -18,7 +18,7 @@ namespace FileOperations
             using var csvReader = new CsvReader(reader, new CsvConfiguration(CultureInfo.InvariantCulture)
             {
                 IgnoreBlankLines = true,
-                BadDataFound = context => Console.WriteLine($"Bad data found at row {context.RawRow}"),
+                BadDataFound = context => Console.WriteLine($"Bad data found at row {context.RawRecord}"), // Update to RawRecord
                 MissingFieldFound = null
             });
 
@@ -57,7 +57,7 @@ namespace FileOperations
             using var csvReader = new CsvReader(reader, new CsvConfiguration(CultureInfo.InvariantCulture)
             {
                 IgnoreBlankLines = true,
-                BadDataFound = context => Console.WriteLine($"Bad data found at row {context.RawRow}"),
+                BadDataFound = context => Console.WriteLine($"Bad data found at row {context.RawRecord}"), // Update to RawRecord
                 MissingFieldFound = null
             });
 
