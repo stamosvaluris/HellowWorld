@@ -1,48 +1,75 @@
-using CdsClient;
-using CdsClient.Sftp;
-using Helpers;
-using FileOperations;
-
-public static class Program
+public static class CsvHelper
 {
-    private static async Task Main(string[] args)
+    public static async Task<IEnumerable<dynamic>> FilterCsvAsync(Stream csvStream, Dictionary<string, string> criteria)
     {
-        Configuration config = Configuration.Load();
-        SftpClient client = new SftpClient();
-        client.Connect(config.Host, config.Port, config.Username, config.Password);
-        client.ChangeDirectory(config.Files);
-        PathHelper.GetTempFolderPath();
-        Console.WriteLine(PathHelper.GetTempFolderPath());
-        client.GetLastUploadedZipFile(PathHelper.GetTempFolderPath());
-        List<string> extractedFiles = ZipHelper.ExtractedLastImportedZipFile(PathHelper.GetTempFolderPath());
-        List<string> keepOnly = new List<string> { "Date", "ShortName", "Tier", "PrimaryCurve", "PrimaryCoupon", "Tenor", "ParSpread" };
-        var filteredColumns = await FileOperations.CsvHelper.KeepOnlyColumnsAsync(extractedFiles[0], keepOnly);
-
-        using (var memoryStream = new MemoryStream())
+        var config = new CsvConfiguration(CultureInfo.InvariantCulture)
         {
-            try
+            IgnoreBlankLines = true,
+            BadDataFound = context => Console.WriteLine($"Bad data found at row {context.RawRecord}"),
+            MissingFieldFound = null
+        };
+
+        using var reader = new StreamReader(csvStream, leaveOpen: true);
+        using var csvReader = new CsvReader(reader, config);
+
+        var records = await csvReader.GetRecordsAsync<dynamic>().ToListAsync();
+        var filteredRecords = new List<dynamic>();
+
+        foreach (var record in records)
+        {
+            var recordDict = record as IDictionary<string, object>;
+            if (recordDict == null) continue;
+
+            bool recordMatches = criteria.All(c => recordDict.ContainsKey(c.Key) && recordDict[c.Key]?.ToString() == c.Value);
+            if (recordMatches)
             {
-                await FileOperations.CsvHelper.WriteCsvAsync(memoryStream, filteredColumns);
-                memoryStream.Position = 0; // Ensure the stream is at the beginning for reading
-
-                var criteria = new Dictionary<string, string>
-                {
-                    { " }
-                };
-
-                memoryStream.Position = 0; // Reset position before reading for filtering
-                var filteredRecords = await FileOperations.CsvHelper.FilterCsvAsync(memoryStream, criteria);
-
-                memoryStream.Position = 0; // Reset position before writing the final output
-                await FileOperations.CsvHelper.WriteCsvAsync(@"", filteredRecords);
-            }
-            finally
-            {
-                memoryStream.Dispose(); // Ensure the stream is disposed of properly
+                filteredRecords.Add(record);
             }
         }
 
-        Console.WriteLine($"############ >>> {extractedFiles[0]}");
+        return filteredRecords;
+    }
+
+    public static async Task WriteCsvAsync(string outputFilePath, IEnumerable<dynamic> records)
+    {
+        var config = new CsvConfiguration(CultureInfo.InvariantCulture)
+        {
+            IgnoreBlankLines = true
+        };
+
+        using var writer = new StreamWriter(outputFilePath);
+        using var csvWriter = new CsvWriter(writer, config);
+
+        await csvWriter.WriteRecordsAsync(records);
+    }
+}
+
+// Program.cs example usage
+public class Program
+{
+    public static async Task Main(string[] args)
+    {
+        var config = Configuration.Load();
+        var client = new SftpClient();
+        client.Connect(config.Host, config.Port, config.Username, config.Password);
+        client.ChangeDirectory(config.FilePath);
+
+        PathHelper.GetTempFolderPath();
+        var extractedFiles = ZipHelper.ExtractedLastImportedZipFile(PathHelper.GetTempFolderPath());
+
+        var criteria = new Dictionary<string, string>
+        {
+        
+        };
+
+        var keepOnly = new List<string> { "Tier", "PrimaryCurve", "PrimaryCoupon", "Tenor", "ParSpread" };
+
+        await using (var memoryStream = new MemoryStream(File.ReadAllBytes(extractedFiles[0])))
+        {
+            var filteredRecords = await CsvHelper.FilterCsvAsync(memoryStream, criteria);
+            await CsvHelper.WriteCsvAsync(@"", filteredRecords);
+        }
+
         client.Disconnect();
     }
 }
