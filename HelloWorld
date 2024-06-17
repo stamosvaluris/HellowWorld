@@ -29,7 +29,9 @@ namespace FileOperations
 
             foreach (var record in records)
             {
-                var recordDict = (IDictionary<string, object>)record;
+                var recordDict = record as IDictionary<string, object>;
+                if (recordDict == null) continue;
+
                 bool recordMatches = criteria.All(criterion =>
                 {
                     var key = criterion.Key;
