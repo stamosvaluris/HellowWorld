@@ -4,7 +4,6 @@ using Helpers;
 using FileOperations;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Threading.Tasks;
 
 public static class Program
@@ -22,26 +21,28 @@ public static class Program
         List<string> keepOnly = new List<string> { "Date", "ShortName", "Tier", "PrimaryCurve", "PrimaryCoupon", "Tenor", "ParSpread" };
         var filteredColumns = await FileOperations.CsvHelper.KeepOnlyColumnsAsync(extractedFiles[0], keepOnly);
 
-        MemoryStream memoryStream = new MemoryStream();
-        try
+        using (var memoryStreamForWrite = new MemoryStream())
         {
-            await FileOperations.CsvHelper.WriteCsvAsync(memoryStream, filteredColumns);
-            memoryStream.Position = 0; // Ensure the stream is at the beginning for reading
+            await FileOperations.CsvHelper.WriteCsvAsync(memoryStreamForWrite, filteredColumns);
+            memoryStreamForWrite.Position = 0;
 
-            var criteria = new Dictionary<string, string>
+            using (var memoryStreamForRead = new MemoryStream())
             {
-                { }
-            };
+                await memoryStreamForWrite.CopyToAsync(memoryStreamForRead);
+                memoryStreamForRead.Position = 0;
 
-            memoryStream.Position = 0; // Reset position before reading for filtering
-            var filteredRecords = await FileOperations.CsvHelper.FilterCsvAsync(memoryStream, criteria);
+                var criteria = new Dictionary<string, string>
+                {
+                    
+                };
 
-            memoryStream.Position = 0; // Reset position before writing the final output
-            await FileOperations.CsvHelper.WriteCsvAsync("C:.csv", filteredRecords);
-        }
-        finally
-        {
-            memoryStream.Dispose(); // Ensure the stream is disposed of properly
+                var filteredRecords = await FileOperations.CsvHelper.FilterCsvAsync(memoryStreamForRead, criteria);
+
+                using (var outputStream = new FileStream("\\", FileMode.Create, FileAccess.Write))
+                {
+                    await FileOperations.CsvHelper.WriteCsvAsync(outputStream, filteredRecords);
+                }
+            }
         }
 
         Console.WriteLine($"###########  --->> {extractedFiles[0]}");
