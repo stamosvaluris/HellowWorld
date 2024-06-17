@@ -85,11 +85,10 @@ namespace FileOperations
         {
             var config = new CsvConfiguration(CultureInfo.InvariantCulture)
             {
-                IgnoreBlankLines = true,
-                LeaveOpen = true // Important to keep the stream open
+                IgnoreBlankLines = true
             };
 
-            using var writer = new StreamWriter(outputStream);
+            using var writer = new StreamWriter(outputStream, leaveOpen: true);
             using var csvWriter = new CsvWriter(writer, config);
 
             await csvWriter.WriteRecordsAsync(records);
@@ -190,5 +189,55 @@ namespace FileOperations
 
             return filteredRecords;
         }
+    }
+}
+
+
+
+using CdsClient;
+using Clients.Sftp;
+using Helpers;
+using FileOperations;
+using System.Collections.Generic;
+using System.IO;
+using System.Threading.Tasks;
+
+public static class Program
+{
+    private static async Task Main(string[] args)
+    {
+        Configuration config = Configuration.Load();
+        SftpClient client = new SftpClient();
+        client.Connect(config.Host, config.Port, config.Username, config.Password);
+        client.ChangeDirectory(config.Files);
+        PathHelper.GetTempFolderPath();
+        Console.WriteLine(PathHelper.GetTempFolderPath());
+        client.GetLastUploadedZipFile(PathHelper.GetTempFolderPath());
+        List<string> extractedFiles = ZipHelper.ExtractedLastImportedZipFile(PathHelper.GetTempFolderPath());
+        List<string> keepOnly = new List<string> { "Date", "ShortName", "Tier", "PrimaryCurve", "PrimaryCoupon", "Tenor", "ParSpread" };
+        var filteredColumns = await FileOperations.CsvHelper.KeepOnlyColumnsAsync(extractedFiles[0], keepOnly);
+
+        using (var memoryStream = new MemoryStream())
+        {
+            await FileOperations.CsvHelper.WriteCsvAsync(memoryStream, filteredColumns);
+            memoryStream.Position = 0; // Ensure the stream is at the beginning for reading
+
+            var criteria = new Dictionary<string, string>
+            {
+    
+            };
+
+            memoryStream.Position = 0; // Reset position before reading for filtering
+            var filteredRecords = await FileOperations.CsvHelper.FilterCsvAsync(memoryStream, criteria);
+
+            memoryStream.Position = 0; // Reset position before writing the final output
+            using (var fileStream = new FileStream(@"C:\\Temp\output.csv", FileMode.Create, FileAccess.Write))
+            {
+                await FileOperations.CsvHelper.WriteCsvAsync(fileStream, filteredRecords);
+            }
+        }
+
+        Console.WriteLine($"Extracted file: {extractedFiles[0]}");
+        client.Disconnect();
     }
 }
