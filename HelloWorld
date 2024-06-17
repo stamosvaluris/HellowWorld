@@ -1,48 +1,3 @@
-using CdsClient;
-using Clients.SFtp;
-using Helpers;
-using FileOperations;
-
-public static class Program
-{
-    public static async Task Main(string[] args)
-    {
-        Configuration config = Configuration.Load();
-        SFtpClient client = new SFtpClient();
-        client.Connect(config.Host, config.Port, config.Username, config.Password);
-        client.ChangeDirectory(config.Files);
-        PathHelper.GetTempFolderPath();
-        Console.WriteLine(PathHelper.GetTempFolderPath());
-        client.GetLastUploadedZipFile(PathHelper.GetTempFolderPath());
-        List<string> extractedFiles = ZipHelper.ExtractLastImportedZipFile(PathHelper.GetTempFolderPath());
-        List<string> keepOnly = new List<string> { "Date", "ShortName", "Tier", "PrimaryCurve", "PrimaryCoupon", "Tenor", "ParSpread" };
-        var filteredColumns = await FileOperations.CsvHelper.KeepOnlyColumnsAsync(extractedFiles[0], keepOnly);
-
-        using (var memoryStream = new MemoryStream())
-        {
-            await FileOperations.CsvHelper.WriteCsvAsync(memoryStream, filteredColumns);
-            memoryStream.Position = 0; // Ensure the stream is at the beginning for reading
-
-            var criteria = new Dictionary<string, string>
-    
-            };
-
-            memoryStream.Position = 0; // Reset position before reading for filtering
-            var filteredRecords = await FileOperations.CsvHelper.FilterCsvAsync(memoryStream, criteria);
-
-            memoryStream.Position = 0; // Reset position before writing the final output
-            using (var fileStream = new FileStream(".csv", FileMode.Create, FileAccess.Write))
-            {
-                await FileOperations.CsvHelper.WriteCsvAsync(fileStream, filteredRecords);
-            }
-        }
-
-        Console.Wri
-        client.Disconnect();
-    }
-}
-
-
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -50,8 +5,6 @@ using System.Linq;
 using System.Threading.Tasks;
 using CsvHelper;
 using CsvHelper.Configuration;
-using CsvHelper.Configuration.Attributes;
-using CsvHelper.TypeConversion;
 
 namespace FileOperations
 {
@@ -95,7 +48,7 @@ namespace FileOperations
                 MissingFieldFound = null
             };
 
-            using var reader = new StreamReader(csvStream);
+            using var reader = new StreamReader(csvStream, leaveOpen: true);
             using var csvReader = new CsvReader(reader, config);
             var records = await csvReader.GetRecordsAsync<dynamic>().ToListAsync();
 
@@ -131,11 +84,10 @@ namespace FileOperations
         {
             var config = new CsvConfiguration(CultureInfo.InvariantCulture)
             {
-                IgnoreBlankLines = true,
-                LeaveOpen = true // Important to keep the stream open
+                IgnoreBlankLines = true
             };
 
-            using var writer = new StreamWriter(outputStream);
+            using var writer = new StreamWriter(outputStream, leaveOpen: true);
             using var csvWriter = new CsvWriter(writer, config);
             await csvWriter.WriteRecordsAsync(records);
         }
@@ -173,7 +125,7 @@ namespace FileOperations
                 MissingFieldFound = null
             };
 
-            using var reader = new StreamReader(csvStream);
+            using var reader = new StreamReader(csvStream, leaveOpen: true);
             using var csvReader = new CsvReader(reader, config);
             var records = await csvReader.GetRecordsAsync<dynamic>().ToListAsync();
 
@@ -221,7 +173,7 @@ namespace FileOperations
                 MissingFieldFound = null
             };
 
-            using var reader = new StreamReader(csvStream);
+            using var reader = new StreamReader(csvStream, leaveOpen: true);
             using var csvReader = new CsvReader(reader, config);
             var records = await csvReader.GetRecordsAsync<dynamic>().ToListAsync();
 
