@@ -5,13 +5,15 @@ using System.Linq;
 using System.Threading.Tasks;
 using CsvHelper;
 using CsvHelper.Configuration;
-using System.Dynamic;
+using CsvHelper.Configuration.Attributes;
+using CsvHelper.TypeConversion;
+using Newtonsoft.Json;
 
 namespace FileOperations
 {
     public static class CsvHelper
     {
-        public static async Task<IEnumerable<ExpandoObject>> FilterCsvAsync(string inputFilePath, Dictionary<string, string> criteria)
+        public static async Task<IEnumerable<dynamic>> FilterCsvAsync(string inputFilePath, Dictionary<string, string> criteria)
         {
             var config = new CsvConfiguration(CultureInfo.InvariantCulture)
             {
@@ -22,13 +24,17 @@ namespace FileOperations
 
             using var reader = new StreamReader(inputFilePath);
             using var csvReader = new CsvReader(reader, config);
-            var records = await csvReader.GetRecordsAsync<ExpandoObject>().ToListAsync();
+            var records = await csvReader.GetRecordsAsync<dynamic>().ToListAsync();
 
-            var filteredRecords = new List<ExpandoObject>();
+            var filteredRecords = new List<dynamic>();
+
             foreach (var record in records)
             {
-                var recordDict = (IDictionary<string, object>)record;
-                bool recordMatches = criteria.All(c => recordDict.ContainsKey(c.Key) && recordDict[c.Key]?.ToString() == c.Value);
+                var recordDict = record as IDictionary<string, object>;
+                if (recordDict == null) continue;
+
+                bool recordMatches = criteria.All(c => recordDict.ContainsKey(c.Key) && recordDict[c.Key].ToString() == c.Value);
+
                 if (recordMatches)
                 {
                     filteredRecords.Add(record);
@@ -38,7 +44,7 @@ namespace FileOperations
             return filteredRecords;
         }
 
-        public static async Task<IEnumerable<ExpandoObject>> FilterCsvAsync(Stream csvStream, Dictionary<string, string> criteria)
+        public static async Task<IEnumerable<dynamic>> FilterCsvAsync(Stream csvStream, Dictionary<string, string> criteria)
         {
             var config = new CsvConfiguration(CultureInfo.InvariantCulture)
             {
@@ -47,15 +53,19 @@ namespace FileOperations
                 MissingFieldFound = null
             };
 
-            using var reader = new StreamReader(csvStream, leaveOpen: true);
+            using var reader = new StreamReader(csvStream);
             using var csvReader = new CsvReader(reader, config);
-            var records = await csvReader.GetRecordsAsync<ExpandoObject>().ToListAsync();
+            var records = await csvReader.GetRecordsAsync<dynamic>().ToListAsync();
 
-            var filteredRecords = new List<ExpandoObject>();
+            var filteredRecords = new List<dynamic>();
+
             foreach (var record in records)
             {
-                var recordDict = (IDictionary<string, object>)record;
-                bool recordMatches = criteria.All(c => recordDict.ContainsKey(c.Key) && recordDict[c.Key]?.ToString() == c.Value);
+                var recordDict = record as IDictionary<string, object>;
+                if (recordDict == null) continue;
+
+                bool recordMatches = criteria.All(c => recordDict.ContainsKey(c.Key) && recordDict[c.Key].ToString() == c.Value);
+
                 if (recordMatches)
                 {
                     filteredRecords.Add(record);
@@ -65,7 +75,7 @@ namespace FileOperations
             return filteredRecords;
         }
 
-        public static async Task WriteCsvAsync(string outputFilePath, IEnumerable<ExpandoObject> records)
+        public static async Task WriteCsvAsync(string outputFilePath, IEnumerable<dynamic> records)
         {
             var config = new CsvConfiguration(CultureInfo.InvariantCulture)
             {
@@ -77,7 +87,7 @@ namespace FileOperations
             await csvWriter.WriteRecordsAsync(records);
         }
 
-        public static async Task WriteCsvAsync(Stream outputStream, IEnumerable<ExpandoObject> records)
+        public static async Task WriteCsvAsync(Stream outputStream, IEnumerable<dynamic> records)
         {
             var config = new CsvConfiguration(CultureInfo.InvariantCulture)
             {
@@ -89,7 +99,7 @@ namespace FileOperations
             await csvWriter.WriteRecordsAsync(records);
         }
 
-        public static async Task<IEnumerable<ExpandoObject>> KeepOnlyColumnsAsync(string inputFilePath, List<string> columnsToKeep)
+        public static async Task<IEnumerable<dynamic>> KeepOnlyColumnsAsync(string inputFilePath, List<string> columnsToKeep)
         {
             var config = new CsvConfiguration(CultureInfo.InvariantCulture)
             {
@@ -104,19 +114,21 @@ namespace FileOperations
 
             var filteredRecords = records.Select(record =>
             {
-                var recordDict = (IDictionary<string, object>)record;
+                var recordDict = record as IDictionary<string, object>;
                 var filteredDict = new ExpandoObject() as IDictionary<string, object>;
+
                 foreach (var kvp in recordDict.Where(kvp => columnsToKeep.Contains(kvp.Key)))
                 {
                     filteredDict[kvp.Key] = kvp.Value;
                 }
+
                 return (ExpandoObject)filteredDict;
             }).ToList();
 
             return filteredRecords;
         }
 
-        public static async Task<IEnumerable<ExpandoObject>> KeepOnlyColumnsAsync(Stream csvStream, List<string> columnsToKeep)
+        public static async Task<IEnumerable<dynamic>> KeepOnlyColumnsAsync(Stream csvStream, List<string> columnsToKeep)
         {
             var config = new CsvConfiguration(CultureInfo.InvariantCulture)
             {
@@ -125,25 +137,27 @@ namespace FileOperations
                 MissingFieldFound = null
             };
 
-            using var reader = new StreamReader(csvStream, leaveOpen: true);
+            using var reader = new StreamReader(csvStream);
             using var csvReader = new CsvReader(reader, config);
             var records = await csvReader.GetRecordsAsync<ExpandoObject>().ToListAsync();
 
             var filteredRecords = records.Select(record =>
             {
-                var recordDict = (IDictionary<string, object>)record;
+                var recordDict = record as IDictionary<string, object>;
                 var filteredDict = new ExpandoObject() as IDictionary<string, object>;
+
                 foreach (var kvp in recordDict.Where(kvp => columnsToKeep.Contains(kvp.Key)))
                 {
                     filteredDict[kvp.Key] = kvp.Value;
                 }
+
                 return (ExpandoObject)filteredDict;
             }).ToList();
 
             return filteredRecords;
         }
 
-        public static async Task<IEnumerable<ExpandoObject>> RemoveColumnsAsync(string inputFilePath, List<string> columnsToRemove)
+        public static async Task<IEnumerable<dynamic>> RemoveColumnsAsync(string inputFilePath, List<string> columnsToRemove)
         {
             var config = new CsvConfiguration(CultureInfo.InvariantCulture)
             {
@@ -158,19 +172,21 @@ namespace FileOperations
 
             var filteredRecords = records.Select(record =>
             {
-                var recordDict = (IDictionary<string, object>)record;
+                var recordDict = record as IDictionary<string, object>;
                 var filteredDict = new ExpandoObject() as IDictionary<string, object>;
+
                 foreach (var kvp in recordDict.Where(kvp => !columnsToRemove.Contains(kvp.Key)))
                 {
                     filteredDict[kvp.Key] = kvp.Value;
                 }
+
                 return (ExpandoObject)filteredDict;
             }).ToList();
 
             return filteredRecords;
         }
 
-        public static async Task<IEnumerable<ExpandoObject>> RemoveColumnsAsync(Stream csvStream, List<string> columnsToRemove)
+        public static async Task<IEnumerable<dynamic>> RemoveColumnsAsync(Stream csvStream, List<string> columnsToRemove)
         {
             var config = new CsvConfiguration(CultureInfo.InvariantCulture)
             {
@@ -179,70 +195,24 @@ namespace FileOperations
                 MissingFieldFound = null
             };
 
-            using var reader = new StreamReader(csvStream, leaveOpen: true);
+            using var reader = new StreamReader(csvStream);
             using var csvReader = new CsvReader(reader, config);
             var records = await csvReader.GetRecordsAsync<ExpandoObject>().ToListAsync();
 
             var filteredRecords = records.Select(record =>
             {
-                var recordDict = (IDictionary<string, object>)record;
+                var recordDict = record as IDictionary<string, object>;
                 var filteredDict = new ExpandoObject() as IDictionary<string, object>;
+
                 foreach (var kvp in recordDict.Where(kvp => !columnsToRemove.Contains(kvp.Key)))
                 {
                     filteredDict[kvp.Key] = kvp.Value;
                 }
+
                 return (ExpandoObject)filteredDict;
             }).ToList();
 
             return filteredRecords;
         }
-    }
-}
-
-
-using CdsClient;
-using Clients.SFtp;
-using Helpers;
-using FileOperations;
-using System.Dynamic;
-
-public static class Program
-{
-    public static async Task Main(string[] args)
-    {
-        Configuration config = Configuration.Load();
-        SFtpClient client = new SFtpClient();
-        client.Connect(config.Host, config.Port, config.Username, config.Password);
-        client.ChangeDirectory(config.Files);
-        PathHelper.GetTempFolderPath();
-        Console.WriteLine(PathHelper.GetTempFolderPath());
-        client.GetLastUploadedZipFile(PathHelper.GetTempFolderPath());
-        List<string> extractedFiles = ZipHelper.ExtractLastImportedZipFile(PathHelper.GetTempFolderPath());
-        List<string> keepOnly = new List<string> { "Date", "ShortName", "Tier", "PrimaryCurve", "PrimaryCoupon", "Tenor", "ParSpread" };
-        var filteredColumns = await FileOperations.CsvHelper.KeepOnlyColumnsAsync(extractedFiles[0], keepOnly);
-
-        using (var memoryStream = new MemoryStream())
-        {
-            await FileOperations.CsvHelper.WriteCsvAsync(memoryStream, filteredColumns);
-            memoryStream.Position = 0; // Ensure the stream is at the beginning for reading
-
-            var criteria = new Dictionary<string, string>
-            {
-                { "Tier", "SNRFOR" },
-                { "PrimaryCurve", "Y" },
-                { "PrimaryCoupon", "Y" },
-                { "Tenor", "5Y" }
-            };
-
-            memoryStream.Position = 0; // Reset position before reading for filtering
-            var filteredRecords = await FileOperations.CsvHelper.FilterCsvAsync(memoryStream, criteria);
-
-            memoryStream.Position = 0; // Reset position before writing the final output
-            using (var fileStream = new FileStream(\\Temp\\output.csv", FileMode.Create, FileAccess.Write))
-            {
-                await FileOperations.CsvHelper.WriteCsvAsync(fileStream, filteredRecords);
-            }
-    );
-        client.Disconnect();
     }
 }
