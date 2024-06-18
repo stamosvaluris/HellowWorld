@@ -15,23 +15,24 @@ namespace FileOperations
             var config = new CsvConfiguration(CultureInfo.InvariantCulture)
             {
                 IgnoreBlankLines = true,
-                BadDataFound = context => Console.WriteLine($"Bad data found at row {context.RawRecord}"),
+                BadDataFound = context => Console.WriteLine($"Bad data found at row {context.RawRow}"),
                 MissingFieldFound = null
             };
 
             using var reader = new StreamReader(inputFilePath);
             using var csvReader = new CsvReader(reader, config);
-            var records = await csvReader.GetRecordsAsync<Dictionary<string, object>>().ToListAsync();
+            var records = await csvReader.GetRecordsAsync<dynamic>().ToListAsync();
 
             var filteredRecords = new List<Dictionary<string, object>>();
 
             foreach (var record in records)
             {
-                bool recordMatches = criteria.All(c => record.ContainsKey(c.Key) && record[c.Key].ToString() == c.Value);
+                var recordDict = (IDictionary<string, object>)record;
+                bool recordMatches = criteria.All(c => recordDict.ContainsKey(c.Key) && recordDict[c.Key]?.ToString() == c.Value);
 
                 if (recordMatches)
                 {
-                    filteredRecords.Add(record);
+                    filteredRecords.Add(new Dictionary<string, object>(recordDict));
                 }
             }
 
@@ -43,23 +44,24 @@ namespace FileOperations
             var config = new CsvConfiguration(CultureInfo.InvariantCulture)
             {
                 IgnoreBlankLines = true,
-                BadDataFound = context => Console.WriteLine($"Bad data found at row {context.RawRecord}"),
+                BadDataFound = context => Console.WriteLine($"Bad data found at row {context.RawRow}"),
                 MissingFieldFound = null
             };
 
             using var reader = new StreamReader(csvStream);
             using var csvReader = new CsvReader(reader, config);
-            var records = await csvReader.GetRecordsAsync<Dictionary<string, object>>().ToListAsync();
+            var records = await csvReader.GetRecordsAsync<dynamic>().ToListAsync();
 
             var filteredRecords = new List<Dictionary<string, object>>();
 
             foreach (var record in records)
             {
-                bool recordMatches = criteria.All(c => record.ContainsKey(c.Key) && record[c.Key].ToString() == c.Value);
+                var recordDict = (IDictionary<string, object>)record;
+                bool recordMatches = criteria.All(c => recordDict.ContainsKey(c.Key) && recordDict[c.Key]?.ToString() == c.Value);
 
                 if (recordMatches)
                 {
-                    filteredRecords.Add(record);
+                    filteredRecords.Add(new Dictionary<string, object>(recordDict));
                 }
             }
 
@@ -75,7 +77,7 @@ namespace FileOperations
 
             using var writer = new StreamWriter(outputFilePath);
             using var csvWriter = new CsvWriter(writer, config);
-            await csvWriter.WriteRecordsAsync(records);
+            await WriteRecordsAsync(csvWriter, records);
         }
 
         public static async Task WriteCsvAsync(Stream outputStream, IEnumerable<Dictionary<string, object>> records)
@@ -87,7 +89,28 @@ namespace FileOperations
 
             using var writer = new StreamWriter(outputStream, leaveOpen: true);
             using var csvWriter = new CsvWriter(writer, config);
-            await csvWriter.WriteRecordsAsync(records);
+            await WriteRecordsAsync(csvWriter, records);
+        }
+
+        private static async Task WriteRecordsAsync(CsvWriter csvWriter, IEnumerable<Dictionary<string, object>> records)
+        {
+            if (!records.Any()) return;
+
+            var headers = records.First().Keys;
+            foreach (var header in headers)
+            {
+                csvWriter.WriteField(header);
+            }
+            await csvWriter.NextRecordAsync();
+
+            foreach (var record in records)
+            {
+                foreach (var header in headers)
+                {
+                    csvWriter.WriteField(record[header]);
+                }
+                await csvWriter.NextRecordAsync();
+            }
         }
 
         public static async Task<IEnumerable<Dictionary<string, object>>> KeepOnlyColumnsAsync(string inputFilePath, List<string> columnsToKeep)
@@ -95,22 +118,20 @@ namespace FileOperations
             var config = new CsvConfiguration(CultureInfo.InvariantCulture)
             {
                 IgnoreBlankLines = true,
-                BadDataFound = context => Console.WriteLine($"Bad data found at row {context.RawRecord}"),
+                BadDataFound = context => Console.WriteLine($"Bad data found at row {context.RawRow}"),
                 MissingFieldFound = null
             };
 
             using var reader = new StreamReader(inputFilePath);
             using var csvReader = new CsvReader(reader, config);
-            var records = await csvReader.GetRecordsAsync<Dictionary<string, object>>().ToListAsync();
+            var records = await csvReader.GetRecordsAsync<dynamic>().ToListAsync();
 
             var filteredRecords = records.Select(record =>
             {
-                var filteredDict = new Dictionary<string, object>();
-                foreach (var kvp in record.Where(kvp => columnsToKeep.Contains(kvp.Key)))
-                {
-                    filteredDict[kvp.Key] = kvp.Value;
-                }
-                return filteredDict;
+                var recordDict = (IDictionary<string, object>)record;
+                return recordDict
+                    .Where(kvp => columnsToKeep.Contains(kvp.Key))
+                    .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
             }).ToList();
 
             return filteredRecords;
@@ -121,22 +142,20 @@ namespace FileOperations
             var config = new CsvConfiguration(CultureInfo.InvariantCulture)
             {
                 IgnoreBlankLines = true,
-                BadDataFound = context => Console.WriteLine($"Bad data found at row {context.RawRecord}"),
+                BadDataFound = context => Console.WriteLine($"Bad data found at row {context.RawRow}"),
                 MissingFieldFound = null
             };
 
             using var reader = new StreamReader(csvStream);
             using var csvReader = new CsvReader(reader, config);
-            var records = await csvReader.GetRecordsAsync<Dictionary<string, object>>().ToListAsync();
+            var records = await csvReader.GetRecordsAsync<dynamic>().ToListAsync();
 
             var filteredRecords = records.Select(record =>
             {
-                var filteredDict = new Dictionary<string, object>();
-                foreach (var kvp in record.Where(kvp => columnsToKeep.Contains(kvp.Key)))
-                {
-                    filteredDict[kvp.Key] = kvp.Value;
-                }
-                return filteredDict;
+                var recordDict = (IDictionary<string, object>)record;
+                return recordDict
+                    .Where(kvp => columnsToKeep.Contains(kvp.Key))
+                    .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
             }).ToList();
 
             return filteredRecords;
@@ -147,22 +166,20 @@ namespace FileOperations
             var config = new CsvConfiguration(CultureInfo.InvariantCulture)
             {
                 IgnoreBlankLines = true,
-                BadDataFound = context => Console.WriteLine($"Bad data found at row {context.RawRecord}"),
+                BadDataFound = context => Console.WriteLine($"Bad data found at row {context.RawRow}"),
                 MissingFieldFound = null
             };
 
             using var reader = new StreamReader(inputFilePath);
             using var csvReader = new CsvReader(reader, config);
-            var records = await csvReader.GetRecordsAsync<Dictionary<string, object>>().ToListAsync();
+            var records = await csvReader.GetRecordsAsync<dynamic>().ToListAsync();
 
             var filteredRecords = records.Select(record =>
             {
-                var filteredDict = new Dictionary<string, object>();
-                foreach (var kvp in record.Where(kvp => !columnsToRemove.Contains(kvp.Key)))
-                {
-                    filteredDict[kvp.Key] = kvp.Value;
-                }
-                return filteredDict;
+                var recordDict = (IDictionary<string, object>)record;
+                return recordDict
+                    .Where(kvp => !columnsToRemove.Contains(kvp.Key))
+                    .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
             }).ToList();
 
             return filteredRecords;
@@ -173,22 +190,20 @@ namespace FileOperations
             var config = new CsvConfiguration(CultureInfo.InvariantCulture)
             {
                 IgnoreBlankLines = true,
-                BadDataFound = context => Console.WriteLine($"Bad data found at row {context.RawRecord}"),
+                BadDataFound = context => Console.WriteLine($"Bad data found at row {context.RawRow}"),
                 MissingFieldFound = null
             };
 
             using var reader = new StreamReader(csvStream);
             using var csvReader = new CsvReader(reader, config);
-            var records = await csvReader.GetRecordsAsync<Dictionary<string, object>>().ToListAsync();
+            var records = await csvReader.GetRecordsAsync<dynamic>().ToListAsync();
 
             var filteredRecords = records.Select(record =>
             {
-                var filteredDict = new Dictionary<string, object>();
-                foreach (var kvp in record.Where(kvp => !columnsToRemove.Contains(kvp.Key)))
-                {
-                    filteredDict[kvp.Key] = kvp.Value;
-                }
-                return filteredDict;
+                var recordDict = (IDictionary<string, object>)record;
+                return recordDict
+                    .Where(kvp => !columnsToRemove.Contains(kvp.Key))
+                    .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
             }).ToList();
 
             return filteredRecords;
