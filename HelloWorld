@@ -1,10 +1,11 @@
+using System;
 using System.Collections.Generic;
+using System.Dynamic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
 using CsvHelper;
 using CsvHelper.Configuration;
-using System.Dynamic;
 
 namespace FileOperations
 {
@@ -31,7 +32,6 @@ namespace FileOperations
             };
 
             using var csvReader = new CsvReader(reader, config);
-
             var records = csvReader.GetRecords<dynamic>().ToList();
             var filteredRecords = records.Select(record =>
             {
@@ -70,7 +70,6 @@ namespace FileOperations
             };
 
             using var csvReader = new CsvReader(reader, config);
-
             var records = csvReader.GetRecords<dynamic>().ToList();
             var filteredRecords = records.Where(record =>
             {
