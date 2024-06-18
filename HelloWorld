@@ -1,135 +1,55 @@
+using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.IO;
-using System.Linq;
-using CsvHelper;
-using CsvHelper.Configuration;
+using System.Threading.Tasks;
+using CdsClient;
+using CdsClient.Sftp;
+using Helpers;
+using FileOperations;
 
-namespace FileOperations
+namespace CdsClient
 {
-    public static class CsvHelper
+    public static class Program
     {
-        public static IEnumerable<ExpandoObject> KeepOnlyColumns(string inputFilePath, List<string> columnsToKeep)
+        public static async Task Main(string[] args)
         {
-            using var reader = new StreamReader(inputFilePath);
-            return KeepOnlyColumns(reader, columnsToKeep);
-        }
+            Configuration config = Configuration.Load();
 
-        public static IEnumerable<ExpandoObject> KeepOnlyColumns(Stream csvStream, List<string> columnsToKeep)
-        {
-            using var reader = new StreamReader(csvStream, leaveOpen: true);
-            return KeepOnlyColumns(reader, columnsToKeep);
-        }
-
-        private static IEnumerable<ExpandoObject> KeepOnlyColumns(TextReader reader, List<string> columnsToKeep)
-        {
-            var config = new CsvConfiguration(CultureInfo.InvariantCulture)
+            var fisConfig = FisClient.Services.FisClient(config.FisEnvironment);
+            var accessToken = await fisConfig.GetAccessTokenAsync(config);
+            var cpStaticDataService = new CpStaticDataService(fisConfig.BaseUrl, fisConfig.Services.CpStaticData.Endpoint);
+            JsonDocument staticData = await cpStaticDataService.GetConditionalCounterpartyStaticDataAsync(accessToken, counterpartyName: null, config.CounterpartyCondition);
+            var jsonHelper = new JsonHelper();
+            var values = await jsonHelper.ExtractValuesByKeyAsync(staticData, config.KeyToExtract);
+            foreach (var month in values)
             {
-                IgnoreBlankLines = true,
-                MissingFieldFound = null
-            };
+                Console.WriteLine(month);
+            }
 
-            using var csvReader = new CsvReader(reader, config);
-            var records = csvReader.GetRecords<dynamic>().ToList();
-            var filteredRecords = records.Select(record =>
+            SftpClient client = new SftpClient();
+            client.Connect(config.Host, config.Port, config.Username, config.Password);
+            client.ChangeDirectory(config.Files);
+            client.GetLastUploadedZipFile(PathHelper.GetTempFolderPath());
+
+            string tempPath = PathHelper.GetTempFolderPath();
+            List<string> extractedFiles = ZipHelper.ExtractLastImportedZipFile(tempPath);
+
+            string outputPathStream = Path.Combine(tempPath, "output_streamed.csv");
+            using (var inputStream = new FileStream(extractedFiles[0], FileMode.Open, FileAccess.Read))
+            using (var memoryStream = new MemoryStream())
             {
-                var recordDict = record as IDictionary<string, object>;
-                var filteredDict = new ExpandoObject() as IDictionary<string, object>;
-                foreach (var kvp in recordDict.Where(kvp => columnsToKeep.Contains(kvp.Key)))
+                var filteredColumnsStream = CsvHelper.KeepOnlyColumns(inputStream, config.ColumnsToKeep);
+                CsvHelper.WriteCsv(memoryStream, filteredColumnsStream);
+                memoryStream.Position = 0;
+
+                var filteredRecordsStream = CsvHelper.FilterCsv(memoryStream, config.Criteria);
+                using (var outputStream = new FileStream(outputPathStream, FileMode.Create, FileAccess.Write))
                 {
-                    filteredDict[kvp.Key] = kvp.Value;
+                    CsvHelper.WriteCsv(outputStream, filteredRecordsStream);
                 }
-                return (ExpandoObject)filteredDict;
-            }).ToList();
+            }
 
-            return filteredRecords;
-        }
-
-        public static IEnumerable<dynamic> FilterCsv(string inputFilePath, Dictionary<string, string> criteria)
-        {
-            using var reader = new StreamReader(inputFilePath);
-            return FilterCsv(reader, criteria);
-        }
-
-        public static IEnumerable<dynamic> FilterCsv(Stream csvStream, Dictionary<string, string> criteria)
-        {
-            using var reader = new StreamReader(csvStream, leaveOpen: true);
-            return FilterCsv(reader, criteria);
-        }
-
-        private static IEnumerable<dynamic> FilterCsv(TextReader reader, Dictionary<string, string> criteria)
-        {
-            var config = new CsvConfiguration(CultureInfo.InvariantCulture)
-            {
-                IgnoreBlankLines = true,
-                MissingFieldFound = null
-            };
-
-            using var csvReader = new CsvReader(reader, config);
-            var records = csvReader.GetRecords<dynamic>().ToList();
-            var filteredRecords = records.Where(record =>
-            {
-                var recordDict = record as IDictionary<string, object>;
-                if (recordDict == null) return false;
-
-                return criteria.All(c => recordDict.ContainsKey(c.Key) && recordDict[c.Key]?.ToString() == c.Value);
-            }).ToList();
-
-            return filteredRecords;
-        }
-
-        public static void WriteCsv(string outputFilePath, IEnumerable<dynamic> records)
-        {
-            using var fileStream = new FileStream(outputFilePath, FileMode.Create, FileAccess.Write, FileShare.None);
-            WriteCsv(fileStream, records);
-        }
-
-        public static void WriteCsv(Stream outputStream, IEnumerable<dynamic> records)
-        {
-            using var writer = new StreamWriter(outputStream, leaveOpen: true);
-            WriteCsv(writer, records);
-        }
-
-        private static void WriteCsv(TextWriter writer, IEnumerable<dynamic> records)
-        {
-            var config = new CsvConfiguration(CultureInfo.InvariantCulture)
-            {
-                IgnoreBlankLines = true
-            };
-
-            using var csvWriter = new CsvWriter(writer, config);
-            csvWriter.WriteRecords(records);
-        }
-
-        public static IEnumerable<dynamic> FilterByColumnValues(string inputFilePath, string columnName, List<string> valuesToMatch)
-        {
-            using var reader = new StreamReader(inputFilePath);
-            return FilterByColumnValues(reader, columnName, valuesToMatch);
-        }
-
-        public static IEnumerable<dynamic> FilterByColumnValues(Stream csvStream, string columnName, List<string> valuesToMatch)
-        {
-            using var reader = new StreamReader(csvStream, leaveOpen: true);
-            return FilterByColumnValues(reader, columnName, valuesToMatch);
-        }
-
-        private static IEnumerable<dynamic> FilterByColumnValues(TextReader reader, string columnName, List<string> valuesToMatch)
-        {
-            var config = new CsvConfiguration(CultureInfo.InvariantCulture)
-            {
-                IgnoreBlankLines = true,
-                MissingFieldFound = null
-            };
-
-            using var csvReader = new CsvReader(reader, config);
-            var records = csvReader.GetRecords<dynamic>().ToList();
-            var filteredRecords = records.Where(record =>
-            {
-                var recordDict = record as IDictionary<string, object>;
-                return recordDict != null && valuesToMatch.Contains(recordDict[columnName]?.ToString());
-            }).ToList();
-
-            return filteredRecords;
+            client.Disconnect();
         }
     }
 }
