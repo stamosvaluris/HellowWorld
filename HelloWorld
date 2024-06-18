@@ -1,41 +1,93 @@
-using System;
 using System.Collections.Generic;
-using System.Dynamic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
 using CsvHelper;
 using CsvHelper.Configuration;
+using System.Dynamic;
 
 namespace FileOperations
 {
     public static class CsvHelper
     {
-        public static IEnumerable<dynamic> FilterCsv(string inputFilePath, Dictionary<string, string> criteria)
+        public static IEnumerable<ExpandoObject> KeepOnlyColumns(string inputFilePath, List<string> columnsToKeep)
         {
             var config = new CsvConfiguration(CultureInfo.InvariantCulture)
             {
                 IgnoreBlankLines = true,
-                BadDataFound = context => Console.WriteLine($"Bad data found at row {context.RawRecord}"),
+                BadDataFound = context => Console.WriteLine($"Bad data found at row {context.RawRow}"),
                 MissingFieldFound = null
             };
 
             using var reader = new StreamReader(inputFilePath);
             using var csvReader = new CsvReader(reader, config);
-            var records = csvReader.GetRecords<dynamic>().ToList();
-            var filteredRecords = new List<dynamic>();
 
-            foreach (var record in records)
+            var records = csvReader.GetRecords<dynamic>().ToList();
+            var filteredRecords = records.Select(record =>
             {
                 var recordDict = record as IDictionary<string, object>;
-                if (recordDict == null) continue;
+                var filteredDict = new ExpandoObject() as IDictionary<string, object>;
 
-                bool recordMatches = criteria.All(c => recordDict.ContainsKey(c.Key) && recordDict[c.Key].ToString() == c.Value);
-                if (recordMatches)
+                foreach (var kvp in recordDict.Where(kvp => columnsToKeep.Contains(kvp.Key)))
                 {
-                    filteredRecords.Add(record);
+                    filteredDict[kvp.Key] = kvp.Value;
                 }
-            }
+
+                return (ExpandoObject)filteredDict;
+            }).ToList();
+
+            return filteredRecords;
+        }
+
+        public static IEnumerable<ExpandoObject> KeepOnlyColumns(Stream csvStream, List<string> columnsToKeep)
+        {
+            var config = new CsvConfiguration(CultureInfo.InvariantCulture)
+            {
+                IgnoreBlankLines = true,
+                BadDataFound = context => Console.WriteLine($"Bad data found at row {context.RawRow}"),
+                MissingFieldFound = null
+            };
+
+            using var reader = new StreamReader(csvStream);
+            using var csvReader = new CsvReader(reader, config);
+
+            var records = csvReader.GetRecords<dynamic>().ToList();
+            var filteredRecords = records.Select(record =>
+            {
+                var recordDict = record as IDictionary<string, object>;
+                var filteredDict = new ExpandoObject() as IDictionary<string, object>;
+
+                foreach (var kvp in recordDict.Where(kvp => columnsToKeep.Contains(kvp.Key)))
+                {
+                    filteredDict[kvp.Key] = kvp.Value;
+                }
+
+                return (ExpandoObject)filteredDict;
+            }).ToList();
+
+            return filteredRecords;
+        }
+
+        public static IEnumerable<dynamic> FilterCsv(string inputFilePath, Dictionary<string, string> criteria)
+        {
+            var config = new CsvConfiguration(CultureInfo.InvariantCulture)
+            {
+                IgnoreBlankLines = true,
+                BadDataFound = context => Console.WriteLine($"Bad data found at row {context.RawRow}"),
+                MissingFieldFound = null
+            };
+
+            using var reader = new StreamReader(inputFilePath);
+            using var csvReader = new CsvReader(reader, config);
+
+            var records = csvReader.GetRecords<dynamic>().ToList();
+            var filteredRecords = records.Where(record =>
+            {
+                var recordDict = record as IDictionary<string, object>;
+                if (recordDict == null) return false;
+
+                return criteria.All(c => recordDict.ContainsKey(c.Key) && recordDict[c.Key]?.ToString() == c.Value);
+            }).ToList();
 
             return filteredRecords;
         }
@@ -45,26 +97,21 @@ namespace FileOperations
             var config = new CsvConfiguration(CultureInfo.InvariantCulture)
             {
                 IgnoreBlankLines = true,
-                BadDataFound = context => Console.WriteLine($"Bad data found at row {context.RawRecord}"),
+                BadDataFound = context => Console.WriteLine($"Bad data found at row {context.RawRow}"),
                 MissingFieldFound = null
             };
 
             using var reader = new StreamReader(csvStream);
             using var csvReader = new CsvReader(reader, config);
-            var records = csvReader.GetRecords<dynamic>().ToList();
-            var filteredRecords = new List<dynamic>();
 
-            foreach (var record in records)
+            var records = csvReader.GetRecords<dynamic>().ToList();
+            var filteredRecords = records.Where(record =>
             {
                 var recordDict = record as IDictionary<string, object>;
-                if (recordDict == null) continue;
+                if (recordDict == null) return false;
 
-                bool recordMatches = criteria.All(c => recordDict.ContainsKey(c.Key) && recordDict[c.Key].ToString() == c.Value);
-                if (recordMatches)
-                {
-                    filteredRecords.Add(record);
-                }
-            }
+                return criteria.All(c => recordDict.ContainsKey(c.Key) && recordDict[c.Key]?.ToString() == c.Value);
+            }).ToList();
 
             return filteredRecords;
         }
@@ -74,11 +121,11 @@ namespace FileOperations
             var config = new CsvConfiguration(CultureInfo.InvariantCulture)
             {
                 IgnoreBlankLines = true,
-                LeaveOpen = true
             };
 
             using var writer = new StreamWriter(outputFilePath);
             using var csvWriter = new CsvWriter(writer, config);
+
             csvWriter.WriteRecords(records);
         }
 
@@ -87,168 +134,22 @@ namespace FileOperations
             var config = new CsvConfiguration(CultureInfo.InvariantCulture)
             {
                 IgnoreBlankLines = true,
-                LeaveOpen = true
             };
 
-            using var writer = new StreamWriter(outputStream);
+            using var writer = new StreamWriter(outputStream, leaveOpen: true);
             using var csvWriter = new CsvWriter(writer, config);
+
             csvWriter.WriteRecords(records);
         }
-
-        public static IEnumerable<dynamic> KeepOnlyColumns(string inputFilePath, List<string> columnsToKeep)
-        {
-            var config = new CsvConfiguration(CultureInfo.InvariantCulture)
-            {
-                IgnoreBlankLines = true,
-                BadDataFound = context => Console.WriteLine($"Bad data found at row {context.RawRecord}"),
-                MissingFieldFound = null
-            };
-
-            using var reader = new StreamReader(inputFilePath);
-            using var csvReader = new CsvReader(reader, config);
-            var records = csvReader.GetRecords<dynamic>().ToList();
-
-            var filteredRecords = records.Select(record =>
-            {
-                var recordDict = record as IDictionary<string, object>;
-                var filteredDict = new ExpandoObject() as IDictionary<string, object>;
-                foreach (var kvp in recordDict.Where(kvp => columnsToKeep.Contains(kvp.Key)))
-                {
-                    filteredDict[kvp.Key] = kvp.Value;
-                }
-                return (ExpandoObject)filteredDict;
-            }).ToList();
-
-            return filteredRecords;
-        }
-
-        public static IEnumerable<dynamic> KeepOnlyColumns(Stream csvStream, List<string> columnsToKeep)
-        {
-            var config = new CsvConfiguration(CultureInfo.InvariantCulture)
-            {
-                IgnoreBlankLines = true,
-                BadDataFound = context => Console.WriteLine($"Bad data found at row {context.RawRecord}"),
-                MissingFieldFound = null
-            };
-
-            using var reader = new StreamReader(csvStream);
-            using var csvReader = new CsvReader(reader, config);
-            var records = csvReader.GetRecords<dynamic>().ToList();
-
-            var filteredRecords = records.Select(record =>
-            {
-                var recordDict = record as IDictionary<string, object>;
-                var filteredDict = new ExpandoObject() as IDictionary<string, object>;
-                foreach (var kvp in recordDict.Where(kvp => columnsToKeep.Contains(kvp.Key)))
-                {
-                    filteredDict[kvp.Key] = kvp.Value;
-                }
-                return (ExpandoObject)filteredDict;
-            }).ToList();
-
-            return filteredRecords;
-        }
-
-        public static IEnumerable<dynamic> RemoveColumns(string inputFilePath, List<string> columnsToRemove)
-        {
-            var config = new CsvConfiguration(CultureInfo.InvariantCulture)
-            {
-                IgnoreBlankLines = true,
-                BadDataFound = context => Console.WriteLine($"Bad data found at row {context.RawRecord}"),
-                MissingFieldFound = null
-            };
-
-            using var reader = new StreamReader(inputFilePath);
-            using var csvReader = new CsvReader(reader, config);
-            var records = csvReader.GetRecords<dynamic>().ToList();
-
-            var filteredRecords = records.Select(record =>
-            {
-                var recordDict = record as IDictionary<string, object>;
-                var filteredDict = new ExpandoObject() as IDictionary<string, object>;
-                foreach (var kvp in recordDict.Where(kvp => !columnsToRemove.Contains(kvp.Key)))
-                {
-                    filteredDict[kvp.Key] = kvp.Value;
-                }
-                return (ExpandoObject)filteredDict;
-            }).ToList();
-
-            return filteredRecords;
-        }
-
-        public static IEnumerable<dynamic> RemoveColumns(Stream csvStream, List<string> columnsToRemove)
-        {
-            var config = new CsvConfiguration(CultureInfo.InvariantCulture)
-            {
-                IgnoreBlankLines = true,
-                BadDataFound = context => Console.WriteLine($"Bad data found at row {context.RawRecord}"),
-                MissingFieldFound = null
-            };
-
-            using var reader = new StreamReader(csvStream);
-            using var csvReader = new CsvReader(reader, config);
-            var records = csvReader.GetRecords<dynamic>().ToList();
-
-            var filteredRecords = records.Select(record =>
-            {
-                var recordDict = record as IDictionary<string, object>;
-                var filteredDict = new ExpandoObject() as IDictionary<string, object>;
-                foreach (var kvp in recordDict.Where(kvp => !columnsToRemove.Contains(kvp.Key)))
-                {
-                    filteredDict[kvp.Key] = kvp.Value;
-                }
-                return (ExpandoObject)filteredDict;
-            }).ToList();
-
-            return filteredRecords;
-        }
     }
 }
 
 
-using System;
-using System.Collections.Generic;
-using System.IO;
-using CdsClient.Sftp;
-using FileOperations;
-using Helpers;
 
-namespace CdsClient
-{
-    public static class Program
-    {
-        public static void Main(string[] args)
+ using (var inputStream = new FileStream(inputFilePath, FileMode.Open))
+        using (var outputStream = new FileStream(outputFilePath, FileMode.Create))
         {
-            Configuration config = Configuration.Load();
-            SftpClient client = new SftpClient();
-            client.Connect(config.Host, config.Port, config.Username, config.Password);
-            client.ChangeDirectory(config.Files);
-            PathHelper.GetTempFolderPath();
-            Console.WriteLine(PathHelper.GetTempFolderPath());
-            client.GetLastUploadedZipFile(PathHelper.GetTempFolderPath());
-            List<string> extractedFiles = ZipHelper.ExtractedLastImportedZipFile(PathHelper.GetTempFolderPath());
-            List<string> keepOnly = new List<string> { "Date", "ShortName", "Tier", "PrimaryCurve", "PrimaryCoupon", "Tenor", "ParSpread" };
-
-            // Keep only specified columns
-            var filteredColumns = FileOperations.CsvHelper.KeepOnlyColumns(extractedFiles[0], keepOnly);
-
-            // Save filtered columns to a new CSV file
-            string outputFilePath = @"C:\Users\SYSd\admin\source\repos\CDS Client\Temp\output_filtered.csv";
-            FileOperations.CsvHelper.WriteCsv(outputFilePath, filteredColumns);
-
-            // Apply filter criteria
-            var criteria = new Dictionary<string, string>
-            {
-                
-            };
-
-            var filteredRecords = FileOperations.CsvHelper.FilterCsv(outputFilePath, criteria);
-
-            // Save the final filtered CSV file
-            string finalOutputPath = @"";
-            FileOperations.CsvHelper.WriteCsv(finalOutputPath, filteredRecords);
-
-            client.Disconnect();
+            var filteredColumnsStream = CsvHelper.KeepOnlyColumns(inputStream, columnsToKeep);
+            var filteredRecordsStream = CsvHelper.FilterCsv(inputStream, criteria);
+            CsvHelper.WriteCsv(outputStream, filteredRecordsStream);
         }
-    }
-}
