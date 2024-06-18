@@ -15,11 +15,11 @@ public static class Program
         client.ChangeDirectory(config.File);
 
         PathHelper.GetTempFolderPath();
-        string lastUploadedZipFile = client.GetLastUploadedZipFile(PathHelper.GetTempFolderPath());
+        client.GetLastUploadedZipFile(PathHelper.GetTempFolderPath());
         List<string> extractedFiles = ZipHelper.ExtractedLastImportedZipFile(PathHelper.GetTempFolderPath());
 
         var keepOnly = new List<string> { "Tier", "PrimaryCurve", "PrimaryCoupon", "Tenor", "ParSpread" };
-        string outputDir = "output.csv";
+        string outputDir = "t\\Temp\\output.csv";
 
         using (var memoryStream = new MemoryStream())
         {
