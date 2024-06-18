@@ -45,10 +45,11 @@ namespace FileOperations
             {
                 IgnoreBlankLines = true,
                 BadDataFound = context => Console.WriteLine($"Bad data found at row {context.RawRow}"),
-                MissingFieldFound = null
+                MissingFieldFound = null,
+                LeaveOpen = true
             };
 
-            using var reader = new StreamReader(csvStream);
+            using var reader = new StreamReader(csvStream, leaveOpen: true);
             using var csvReader = new CsvReader(reader, config);
             var records = await csvReader.GetRecordsAsync<dynamic>().ToListAsync();
 
@@ -84,7 +85,8 @@ namespace FileOperations
         {
             var config = new CsvConfiguration(CultureInfo.InvariantCulture)
             {
-                IgnoreBlankLines = true
+                IgnoreBlankLines = true,
+                LeaveOpen = true
             };
 
             using var writer = new StreamWriter(outputStream, leaveOpen: true);
@@ -143,10 +145,11 @@ namespace FileOperations
             {
                 IgnoreBlankLines = true,
                 BadDataFound = context => Console.WriteLine($"Bad data found at row {context.RawRow}"),
-                MissingFieldFound = null
+                MissingFieldFound = null,
+                LeaveOpen = true
             };
 
-            using var reader = new StreamReader(csvStream);
+            using var reader = new StreamReader(csvStream, leaveOpen: true);
             using var csvReader = new CsvReader(reader, config);
             var records = await csvReader.GetRecordsAsync<dynamic>().ToListAsync();
 
@@ -191,10 +194,11 @@ namespace FileOperations
             {
                 IgnoreBlankLines = true,
                 BadDataFound = context => Console.WriteLine($"Bad data found at row {context.RawRow}"),
-                MissingFieldFound = null
+                MissingFieldFound = null,
+                LeaveOpen = true
             };
 
-            using var reader = new StreamReader(csvStream);
+            using var reader = new StreamReader(csvStream, leaveOpen: true);
             using var csvReader = new CsvReader(reader, config);
             var records = await csvReader.GetRecordsAsync<dynamic>().ToListAsync();
 
