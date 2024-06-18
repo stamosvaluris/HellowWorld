@@ -12,25 +12,13 @@ namespace FileOperations
     {
         public static IEnumerable<ExpandoObject> KeepOnlyColumns(string inputFilePath, List<string> columnsToKeep)
         {
-            var config = new CsvConfiguration(CultureInfo.InvariantCulture)
-            {
-                IgnoreBlankLines = true,
-                MissingFieldFound = null
-            };
-
             using var reader = new StreamReader(inputFilePath);
             return KeepOnlyColumns(reader, columnsToKeep);
         }
 
         public static IEnumerable<ExpandoObject> KeepOnlyColumns(Stream csvStream, List<string> columnsToKeep)
         {
-            var config = new CsvConfiguration(CultureInfo.InvariantCulture)
-            {
-                IgnoreBlankLines = true,
-                MissingFieldFound = null
-            };
-
-            using var reader = new StreamReader(csvStream);
+            using var reader = new StreamReader(csvStream, leaveOpen: true);
             return KeepOnlyColumns(reader, columnsToKeep);
         }
 
@@ -63,30 +51,13 @@ namespace FileOperations
 
         public static IEnumerable<dynamic> FilterCsv(string inputFilePath, Dictionary<string, string> criteria)
         {
-            var config = new CsvConfiguration(CultureInfo.InvariantCulture)
-            {
-                IgnoreBlankLines = true,
-                MissingFieldFound = null
-            };
-
             using var reader = new StreamReader(inputFilePath);
             return FilterCsv(reader, criteria);
         }
 
         public static IEnumerable<dynamic> FilterCsv(Stream csvStream, Dictionary<string, string> criteria)
         {
-            if (!csvStream.CanRead)
-            {
-                throw new ArgumentException("Stream is not readable.");
-            }
-
-            var config = new CsvConfiguration(CultureInfo.InvariantCulture)
-            {
-                IgnoreBlankLines = true,
-                MissingFieldFound = null
-            };
-
-            using var reader = new StreamReader(csvStream);
+            using var reader = new StreamReader(csvStream, leaveOpen: true);
             return FilterCsv(reader, criteria);
         }
 
@@ -114,27 +85,12 @@ namespace FileOperations
 
         public static void WriteCsv(string outputFilePath, IEnumerable<dynamic> records)
         {
-            var config = new CsvConfiguration(CultureInfo.InvariantCulture)
-            {
-                IgnoreBlankLines = true,
-            };
-
             using var writer = new StreamWriter(outputFilePath);
             WriteCsv(writer, records);
         }
 
         public static void WriteCsv(Stream outputStream, IEnumerable<dynamic> records)
         {
-            if (!outputStream.CanWrite)
-            {
-                throw new ArgumentException("Stream is not writable.");
-            }
-
-            var config = new CsvConfiguration(CultureInfo.InvariantCulture)
-            {
-                IgnoreBlankLines = true,
-            };
-
             using var writer = new StreamWriter(outputStream, leaveOpen: true);
             WriteCsv(writer, records);
         }
