@@ -15,28 +15,11 @@ namespace FileOperations
             var config = new CsvConfiguration(CultureInfo.InvariantCulture)
             {
                 IgnoreBlankLines = true,
-                BadDataFound = context => Console.WriteLine($"Bad data found at row {context.RawRow}"),
                 MissingFieldFound = null
             };
 
             using var reader = new StreamReader(inputFilePath);
-            using var csvReader = new CsvReader(reader, config);
-
-            var records = csvReader.GetRecords<dynamic>().ToList();
-            var filteredRecords = records.Select(record =>
-            {
-                var recordDict = record as IDictionary<string, object>;
-                var filteredDict = new ExpandoObject() as IDictionary<string, object>;
-
-                foreach (var kvp in recordDict.Where(kvp => columnsToKeep.Contains(kvp.Key)))
-                {
-                    filteredDict[kvp.Key] = kvp.Value;
-                }
-
-                return (ExpandoObject)filteredDict;
-            }).ToList();
-
-            return filteredRecords;
+            return KeepOnlyColumns(reader, columnsToKeep);
         }
 
         public static IEnumerable<ExpandoObject> KeepOnlyColumns(Stream csvStream, List<string> columnsToKeep)
@@ -44,11 +27,21 @@ namespace FileOperations
             var config = new CsvConfiguration(CultureInfo.InvariantCulture)
             {
                 IgnoreBlankLines = true,
-                BadDataFound = context => Console.WriteLine($"Bad data found at row {context.RawRow}"),
                 MissingFieldFound = null
             };
 
             using var reader = new StreamReader(csvStream);
+            return KeepOnlyColumns(reader, columnsToKeep);
+        }
+
+        private static IEnumerable<ExpandoObject> KeepOnlyColumns(TextReader reader, List<string> columnsToKeep)
+        {
+            var config = new CsvConfiguration(CultureInfo.InvariantCulture)
+            {
+                IgnoreBlankLines = true,
+                MissingFieldFound = null
+            };
+
             using var csvReader = new CsvReader(reader, config);
 
             var records = csvReader.GetRecords<dynamic>().ToList();
@@ -73,35 +66,38 @@ namespace FileOperations
             var config = new CsvConfiguration(CultureInfo.InvariantCulture)
             {
                 IgnoreBlankLines = true,
-                BadDataFound = context => Console.WriteLine($"Bad data found at row {context.RawRow}"),
                 MissingFieldFound = null
             };
 
             using var reader = new StreamReader(inputFilePath);
-            using var csvReader = new CsvReader(reader, config);
-
-            var records = csvReader.GetRecords<dynamic>().ToList();
-            var filteredRecords = records.Where(record =>
-            {
-                var recordDict = record as IDictionary<string, object>;
-                if (recordDict == null) return false;
-
-                return criteria.All(c => recordDict.ContainsKey(c.Key) && recordDict[c.Key]?.ToString() == c.Value);
-            }).ToList();
-
-            return filteredRecords;
+            return FilterCsv(reader, criteria);
         }
 
         public static IEnumerable<dynamic> FilterCsv(Stream csvStream, Dictionary<string, string> criteria)
         {
+            if (!csvStream.CanRead)
+            {
+                throw new ArgumentException("Stream is not readable.");
+            }
+
             var config = new CsvConfiguration(CultureInfo.InvariantCulture)
             {
                 IgnoreBlankLines = true,
-                BadDataFound = context => Console.WriteLine($"Bad data found at row {context.RawRow}"),
                 MissingFieldFound = null
             };
 
             using var reader = new StreamReader(csvStream);
+            return FilterCsv(reader, criteria);
+        }
+
+        private static IEnumerable<dynamic> FilterCsv(TextReader reader, Dictionary<string, string> criteria)
+        {
+            var config = new CsvConfiguration(CultureInfo.InvariantCulture)
+            {
+                IgnoreBlankLines = true,
+                MissingFieldFound = null
+            };
+
             using var csvReader = new CsvReader(reader, config);
 
             var records = csvReader.GetRecords<dynamic>().ToList();
@@ -124,32 +120,34 @@ namespace FileOperations
             };
 
             using var writer = new StreamWriter(outputFilePath);
-            using var csvWriter = new CsvWriter(writer, config);
-
-            csvWriter.WriteRecords(records);
+            WriteCsv(writer, records);
         }
 
         public static void WriteCsv(Stream outputStream, IEnumerable<dynamic> records)
         {
+            if (!outputStream.CanWrite)
+            {
+                throw new ArgumentException("Stream is not writable.");
+            }
+
             var config = new CsvConfiguration(CultureInfo.InvariantCulture)
             {
                 IgnoreBlankLines = true,
             };
 
             using var writer = new StreamWriter(outputStream, leaveOpen: true);
-            using var csvWriter = new CsvWriter(writer, config);
+            WriteCsv(writer, records);
+        }
 
+        private static void WriteCsv(TextWriter writer, IEnumerable<dynamic> records)
+        {
+            var config = new CsvConfiguration(CultureInfo.InvariantCulture)
+            {
+                IgnoreBlankLines = true,
+            };
+
+            using var csvWriter = new CsvWriter(writer, config);
             csvWriter.WriteRecords(records);
         }
     }
 }
-
-
-
- using (var inputStream = new FileStream(inputFilePath, FileMode.Open))
-        using (var outputStream = new FileStream(outputFilePath, FileMode.Create))
-        {
-            var filteredColumnsStream = CsvHelper.KeepOnlyColumns(inputStream, columnsToKeep);
-            var filteredRecordsStream = CsvHelper.FilterCsv(inputStream, criteria);
-            CsvHelper.WriteCsv(outputStream, filteredRecordsStream);
-        }
