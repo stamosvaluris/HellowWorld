@@ -10,45 +10,16 @@ namespace FileOperations
 {
     public static class CsvHelper
     {
-        public static async Task<IEnumerable<Dictionary<string, object>>> FilterCsvAsync(string inputFilePath, Dictionary<string, string> criteria)
-        {
-            var config = new CsvConfiguration(CultureInfo.InvariantCulture)
-            {
-                IgnoreBlankLines = true,
-                BadDataFound = context => Console.WriteLine($"Bad data found at row {context.RawRow}"),
-                MissingFieldFound = null
-            };
-
-            using var reader = new StreamReader(inputFilePath);
-            using var csvReader = new CsvReader(reader, config);
-            var records = await csvReader.GetRecordsAsync<dynamic>().ToListAsync();
-
-            var filteredRecords = new List<Dictionary<string, object>>();
-
-            foreach (var record in records)
-            {
-                var recordDict = (IDictionary<string, object>)record;
-                bool recordMatches = criteria.All(c => recordDict.ContainsKey(c.Key) && recordDict[c.Key]?.ToString() == c.Value);
-
-                if (recordMatches)
-                {
-                    filteredRecords.Add(new Dictionary<string, object>(recordDict));
-                }
-            }
-
-            return filteredRecords;
-        }
-
         public static async Task<IEnumerable<Dictionary<string, object>>> FilterCsvAsync(Stream csvStream, Dictionary<string, string> criteria)
         {
             var config = new CsvConfiguration(CultureInfo.InvariantCulture)
             {
                 IgnoreBlankLines = true,
-                BadDataFound = context => Console.WriteLine($"Bad data found at row {context.RawRow}"),
-                MissingFieldFound = null,
-                LeaveOpen = true
+                BadDataFound = context => Console.WriteLine($"Bad data found."),
+                MissingFieldFound = null
             };
 
+            csvStream.Position = 0;
             using var reader = new StreamReader(csvStream, leaveOpen: true);
             using var csvReader = new CsvReader(reader, config);
             var records = await csvReader.GetRecordsAsync<dynamic>().ToListAsync();
@@ -69,26 +40,14 @@ namespace FileOperations
             return filteredRecords;
         }
 
-        public static async Task WriteCsvAsync(string outputFilePath, IEnumerable<Dictionary<string, object>> records)
+        public static async Task WriteCsvAsync(Stream outputStream, IEnumerable<Dictionary<string, object>> records)
         {
             var config = new CsvConfiguration(CultureInfo.InvariantCulture)
             {
                 IgnoreBlankLines = true
             };
 
-            using var writer = new StreamWriter(outputFilePath);
-            using var csvWriter = new CsvWriter(writer, config);
-            await WriteRecordsAsync(csvWriter, records);
-        }
-
-        public static async Task WriteCsvAsync(Stream outputStream, IEnumerable<Dictionary<string, object>> records)
-        {
-            var config = new CsvConfiguration(CultureInfo.InvariantCulture)
-            {
-                IgnoreBlankLines = true,
-                LeaveOpen = true
-            };
-
+            outputStream.Position = 0;
             using var writer = new StreamWriter(outputStream, leaveOpen: true);
             using var csvWriter = new CsvWriter(writer, config);
             await WriteRecordsAsync(csvWriter, records);
@@ -115,40 +74,16 @@ namespace FileOperations
             }
         }
 
-        public static async Task<IEnumerable<Dictionary<string, object>>> KeepOnlyColumnsAsync(string inputFilePath, List<string> columnsToKeep)
-        {
-            var config = new CsvConfiguration(CultureInfo.InvariantCulture)
-            {
-                IgnoreBlankLines = true,
-                BadDataFound = context => Console.WriteLine($"Bad data found at row {context.RawRow}"),
-                MissingFieldFound = null
-            };
-
-            using var reader = new StreamReader(inputFilePath);
-            using var csvReader = new CsvReader(reader, config);
-            var records = await csvReader.GetRecordsAsync<dynamic>().ToListAsync();
-
-            var filteredRecords = records.Select(record =>
-            {
-                var recordDict = (IDictionary<string, object>)record;
-                return recordDict
-                    .Where(kvp => columnsToKeep.Contains(kvp.Key))
-                    .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
-            }).ToList();
-
-            return filteredRecords;
-        }
-
         public static async Task<IEnumerable<Dictionary<string, object>>> KeepOnlyColumnsAsync(Stream csvStream, List<string> columnsToKeep)
         {
             var config = new CsvConfiguration(CultureInfo.InvariantCulture)
             {
                 IgnoreBlankLines = true,
-                BadDataFound = context => Console.WriteLine($"Bad data found at row {context.RawRow}"),
-                MissingFieldFound = null,
-                LeaveOpen = true
+                BadDataFound = context => Console.WriteLine($"Bad data found."),
+                MissingFieldFound = null
             };
 
+            csvStream.Position = 0;
             using var reader = new StreamReader(csvStream, leaveOpen: true);
             using var csvReader = new CsvReader(reader, config);
             var records = await csvReader.GetRecordsAsync<dynamic>().ToListAsync();
@@ -164,40 +99,16 @@ namespace FileOperations
             return filteredRecords;
         }
 
-        public static async Task<IEnumerable<Dictionary<string, object>>> RemoveColumnsAsync(string inputFilePath, List<string> columnsToRemove)
-        {
-            var config = new CsvConfiguration(CultureInfo.InvariantCulture)
-            {
-                IgnoreBlankLines = true,
-                BadDataFound = context => Console.WriteLine($"Bad data found at row {context.RawRow}"),
-                MissingFieldFound = null
-            };
-
-            using var reader = new StreamReader(inputFilePath);
-            using var csvReader = new CsvReader(reader, config);
-            var records = await csvReader.GetRecordsAsync<dynamic>().ToListAsync();
-
-            var filteredRecords = records.Select(record =>
-            {
-                var recordDict = (IDictionary<string, object>)record;
-                return recordDict
-                    .Where(kvp => !columnsToRemove.Contains(kvp.Key))
-                    .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
-            }).ToList();
-
-            return filteredRecords;
-        }
-
         public static async Task<IEnumerable<Dictionary<string, object>>> RemoveColumnsAsync(Stream csvStream, List<string> columnsToRemove)
         {
             var config = new CsvConfiguration(CultureInfo.InvariantCulture)
             {
                 IgnoreBlankLines = true,
-                BadDataFound = context => Console.WriteLine($"Bad data found at row {context.RawRow}"),
-                MissingFieldFound = null,
-                LeaveOpen = true
+                BadDataFound = context => Console.WriteLine($"Bad data found."),
+                MissingFieldFound = null
             };
 
+            csvStream.Position = 0;
             using var reader = new StreamReader(csvStream, leaveOpen: true);
             using var csvReader = new CsvReader(reader, config);
             var records = await csvReader.GetRecordsAsync<dynamic>().ToListAsync();
