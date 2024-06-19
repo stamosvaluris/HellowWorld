@@ -42,10 +42,26 @@ public static class JsonHelper
             }
             else if (property.Value.ValueKind == JsonValueKind.Object)
             {
-                writer.WritePropertyName(property.Name);
-                writer.WriteStartObject();
-                KeepOnlyKeysRecursive(property.Value, writer, keysToKeep);
-                writer.WriteEndObject();
+                var nestedElement = property.Value;
+                using (var nestedStream = new MemoryStream())
+                using (var nestedWriter = new Utf8JsonWriter(nestedStream))
+                {
+                    nestedWriter.WriteStartObject();
+                    KeepOnlyKeysRecursive(nestedElement, nestedWriter, keysToKeep);
+                    nestedWriter.WriteEndObject();
+                    nestedWriter.Flush();
+                    nestedStream.Position = 0;
+
+                    var nestedJson = JsonDocument.Parse(nestedStream).RootElement;
+
+                    foreach (var nestedProperty in nestedJson.EnumerateObject())
+                    {
+                        if (keysToKeep.Contains(nestedProperty.Name))
+                        {
+                            nestedProperty.WriteTo(writer);
+                        }
+                    }
+                }
             }
         }
     }
