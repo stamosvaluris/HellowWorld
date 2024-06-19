@@ -1,91 +1,72 @@
-public static async Task<JsonDocument> KeepOnlyKeysAsync(JsonDocument inputJson, List<string> keysToKeep)
-{
-    using (var stream = new MemoryStream())
-    using (var writer = new Utf8JsonWriter(stream))
-    {
-        writer.WriteStartObject();
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Text.Json;
+using System.Threading.Tasks;
+using CsvHelper;
+using CsvHelper.Configuration;
+using System.Dynamic;
 
-        foreach (var property in inputJson.RootElement.EnumerateObject())
+namespace FileOperations
+{
+    public static class Converters
+    {
+        public static async Task<JsonDocument> CsvToJsonAsync(Stream csvStream)
         {
-            if (keysToKeep.Contains(property.Name))
+            var config = new CsvConfiguration(System.Globalization.CultureInfo.InvariantCulture)
             {
-                property.WriteTo(writer);
+                IgnoreBlankLines = true,
+                BadDataFound = context => Console.WriteLine($"Bad data found at row {context.RawRow}"),
+                MissingFieldFound = null
+            };
+
+            using (var reader = new StreamReader(csvStream))
+            using (var csv = new CsvReader(reader, config))
+            {
+                var records = new List<dynamic>();
+                await foreach (var record in csv.GetRecordsAsync<ExpandoObject>())
+                {
+                    records.Add(record);
+                }
+
+                using (var stream = new MemoryStream())
+                {
+                    await JsonSerializer.SerializeAsync(stream, records);
+                    stream.Position = 0;
+                    return await JsonDocument.ParseAsync(stream);
+                }
             }
         }
 
-        writer.WriteEndObject();
-        await writer.FlushAsync();
-        stream.Position = 0;
-        return await JsonDocument.ParseAsync(stream);
-    }
-}
-
-public static async Task<JsonDocument> RemoveKeysAsync(JsonDocument inputJson, List<string> keysToRemove)
-{
-    using (var stream = new MemoryStream())
-    using (var writer = new Utf8JsonWriter(stream))
-    {
-        writer.WriteStartObject();
-
-        foreach (var property in inputJson.RootElement.EnumerateObject())
+        public static async Task<JsonDocument> CsvToJsonAsync(string csvFilePath)
         {
-            if (!keysToRemove.Contains(property.Name))
+            using (var fileStream = new FileStream(csvFilePath, FileMode.Open, FileAccess.Read))
             {
-                property.WriteTo(writer);
+                return await CsvToJsonAsync(fileStream);
             }
         }
 
-        writer.WriteEndObject();
-        await writer.FlushAsync();
-        stream.Position = 0;
-        return await JsonDocument.ParseAsync(stream);
-    }
-}
-
-public static async Task<JsonDocument> FilterJsonByValuesAsync(JsonDocument inputJson, Dictionary<string, List<string>> criteria)
-{
-    using (var stream = new MemoryStream())
-    using (var writer = new Utf8JsonWriter(stream))
-    {
-        writer.WriteStartObject();
-
-        foreach (var property in inputJson.RootElement.EnumerateObject())
+        public static async Task CsvToJsonAsync(JsonDocument jsonDocument, Stream csvStream)
         {
-            if (criteria.TryGetValue(property.Name, out var values) && values.Contains(property.Value.GetString()))
+            var config = new CsvConfiguration(System.Globalization.CultureInfo.InvariantCulture)
             {
-                property.WriteTo(writer);
+                IgnoreBlankLines = true,
+            };
+
+            using (var writer = new StreamWriter(csvStream))
+            using (var csv = new CsvWriter(writer, config))
+            {
+                var records = JsonSerializer.Deserialize<List<ExpandoObject>>(jsonDocument.RootElement.GetRawText());
+                await csv.WriteRecordsAsync(records);
             }
         }
 
-        writer.WriteEndObject();
-        await writer.FlushAsync();
-        stream.Position = 0;
-        return await JsonDocument.ParseAsync(stream);
-    }
-}
-
-public static async Task<JsonDocument> MultiplyKeyByValueAsync(JsonDocument inputJson, string key, double multiplier)
-{
-    using (var stream = new MemoryStream())
-    using (var writer = new Utf8JsonWriter(stream))
-    {
-        writer.WriteStartObject();
-
-        foreach (var property in inputJson.RootElement.EnumerateObject())
+        public static async Task CsvToJsonAsync(JsonDocument jsonDocument, string csvFilePath)
         {
-            if (property.Name.Equals(key, StringComparison.OrdinalIgnoreCase) && property.Value.TryGetDouble(out var number))
+            using (var fileStream = new FileStream(csvFilePath, FileMode.Create, FileAccess.Write))
             {
-                writer.WriteNumber(key, number * multiplier);
-            }
-            else
-            {
-                property.WriteTo(writer);
+                await CsvToJsonAsync(jsonDocument, fileStream);
             }
         }
-
-        writer.WriteEndObject();
-        await writer.FlushAsync();
-        stream.Position = 0;
-        return await JsonDocument.ParseAsync(stream);
     }
 }
