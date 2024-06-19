@@ -40,30 +40,6 @@ public static class JsonHelper
             {
                 property.WriteTo(writer);
             }
-            else if (property.Value.ValueKind == JsonValueKind.Object)
-            {
-                writer.WriteStartObject(property.Name);
-                KeepOnlyKeysRecursive(property.Value, writer, keysToKeep);
-                writer.WriteEndObject();
-            }
-            else if (property.Value.ValueKind == JsonValueKind.Array)
-            {
-                writer.WriteStartArray(property.Name);
-                foreach (var item in property.Value.EnumerateArray())
-                {
-                    if (item.ValueKind == JsonValueKind.Object)
-                    {
-                        writer.WriteStartObject();
-                        KeepOnlyKeysRecursive(item, writer, keysToKeep);
-                        writer.WriteEndObject();
-                    }
-                    else
-                    {
-                        item.WriteTo(writer);
-                    }
-                }
-                writer.WriteEndArray();
-            }
         }
     }
 
