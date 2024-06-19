@@ -1,55 +1,90 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Threading.Tasks;
-using CdsClient;
-using CdsClient.Sftp;
-using Helpers;
-using FileOperations;
-
-namespace CdsClient
+public static async Task<JsonDocument> KeepOnlyColumnsAsync(Stream jsonStream, List<string> columnsToKeep)
 {
-    public static class Program
+    using var doc = await JsonDocument.ParseAsync(jsonStream);
+    using var ms = new MemoryStream();
+    using var writer = new Utf8JsonWriter(ms);
+
+    writer.WriteStartObject();
+    foreach (var element in doc.RootElement.EnumerateObject())
     {
-        public static async Task Main(string[] args)
+        if (columnsToKeep.Contains(element.Name))
         {
-            Configuration config = Configuration.Load();
-
-            var fisConfig = FisClient.Services.FisClient(config.FisEnvironment);
-            var accessToken = await fisConfig.GetAccessTokenAsync(config);
-            var cpStaticDataService = new CpStaticDataService(fisConfig.BaseUrl, fisConfig.Services.CpStaticData.Endpoint);
-            JsonDocument staticData = await cpStaticDataService.GetConditionalCounterpartyStaticDataAsync(accessToken, counterpartyName: null, config.CounterpartyCondition);
-            var jsonHelper = new JsonHelper();
-            var values = await jsonHelper.ExtractValuesByKeyAsync(staticData, config.KeyToExtract);
-            foreach (var month in values)
-            {
-                Console.WriteLine(month);
-            }
-
-            SftpClient client = new SftpClient();
-            client.Connect(config.Host, config.Port, config.Username, config.Password);
-            client.ChangeDirectory(config.Files);
-            client.GetLastUploadedZipFile(PathHelper.GetTempFolderPath());
-
-            string tempPath = PathHelper.GetTempFolderPath();
-            List<string> extractedFiles = ZipHelper.ExtractLastImportedZipFile(tempPath);
-
-            string outputPathStream = Path.Combine(tempPath, "output_streamed.csv");
-            using (var inputStream = new FileStream(extractedFiles[0], FileMode.Open, FileAccess.Read))
-            using (var memoryStream = new MemoryStream())
-            {
-                var filteredColumnsStream = CsvHelper.KeepOnlyColumns(inputStream, config.ColumnsToKeep);
-                CsvHelper.WriteCsv(memoryStream, filteredColumnsStream);
-                memoryStream.Position = 0;
-
-                var filteredRecordsStream = CsvHelper.FilterCsv(memoryStream, config.Criteria);
-                using (var outputStream = new FileStream(outputPathStream, FileMode.Create, FileAccess.Write))
-                {
-                    CsvHelper.WriteCsv(outputStream, filteredRecordsStream);
-                }
-            }
-
-            client.Disconnect();
+            element.WriteTo(writer);
         }
     }
+    writer.WriteEndObject();
+    await writer.FlushAsync();
+    ms.Position = 0;
+
+    return await JsonDocument.ParseAsync(ms);
+}
+
+public static async Task<JsonDocument> FilterJsonAsync(Stream jsonStream, Dictionary<string, string> criteria)
+{
+    using var doc = await JsonDocument.ParseAsync(jsonStream);
+    using var ms = new MemoryStream();
+    using var writer = new Utf8JsonWriter(ms);
+
+    writer.WriteStartObject();
+    foreach (var element in doc.RootElement.EnumerateObject())
+    {
+        bool recordMatches = criteria.All(c =>
+            element.TryGetProperty(c.Key, out var prop) && prop.GetString() == c.Value);
+        if (recordMatches)
+        {
+            element.WriteTo(writer);
+        }
+    }
+    writer.WriteEndObject();
+    await writer.FlushAsync();
+    ms.Position = 0;
+
+    return await JsonDocument.ParseAsync(ms);
+}
+
+public static async Task<JsonDocument> FilterColumnByValuesAsync(Stream jsonStream, string key, List<string> values)
+{
+    using var doc = await JsonDocument.ParseAsync(jsonStream);
+    using var ms = new MemoryStream();
+    using var writer = new Utf8JsonWriter(ms);
+
+    writer.WriteStartObject();
+    foreach (var element in doc.RootElement.EnumerateObject())
+    {
+        if (element.TryGetProperty(key, out var prop) && values.Contains(prop.GetString()))
+        {
+            element.WriteTo(writer);
+        }
+    }
+    writer.WriteEndObject();
+    await writer.FlushAsync();
+    ms.Position = 0;
+
+    return await JsonDocument.ParseAsync(ms);
+}
+
+public static async Task<JsonDocument> MultiplyKeyByValueAsync(Stream jsonStream, string key, double multiplier)
+{
+    using var doc = await JsonDocument.ParseAsync(jsonStream);
+    using var ms = new MemoryStream();
+    using var writer = new Utf8JsonWriter(ms);
+
+    writer.WriteStartObject();
+    foreach (var element in doc.RootElement.EnumerateObject())
+    {
+        if (element.TryGetProperty(key, out var prop) && prop.ValueKind == JsonValueKind.Number)
+        {
+            writer.WritePropertyName(element.Name);
+            writer.WriteNumberValue(prop.GetDouble() * multiplier);
+        }
+        else
+        {
+            element.WriteTo(writer);
+        }
+    }
+    writer.WriteEndObject();
+    await writer.FlushAsync();
+    ms.Position = 0;
+
+    return await JsonDocument.ParseAsync(ms);
 }
