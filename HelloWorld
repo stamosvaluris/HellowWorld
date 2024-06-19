@@ -5,23 +5,26 @@ public static class JsonHelper
         using (var stream = new MemoryStream())
         using (var writer = new Utf8JsonWriter(stream))
         {
-            writer.WriteStartObject();
             if (inputJson.RootElement.ValueKind == JsonValueKind.Object)
             {
+                writer.WriteStartObject();
                 KeepOnlyKeysRecursive(inputJson.RootElement, writer, keysToKeep);
+                writer.WriteEndObject();
             }
             else if (inputJson.RootElement.ValueKind == JsonValueKind.Array)
             {
                 writer.WriteStartArray();
                 foreach (var element in inputJson.RootElement.EnumerateArray())
                 {
-                    writer.WriteStartObject();
-                    KeepOnlyKeysRecursive(element, writer, keysToKeep);
-                    writer.WriteEndObject();
+                    if (element.ValueKind == JsonValueKind.Object)
+                    {
+                        writer.WriteStartObject();
+                        KeepOnlyKeysRecursive(element, writer, keysToKeep);
+                        writer.WriteEndObject();
+                    }
                 }
                 writer.WriteEndArray();
             }
-            writer.WriteEndObject();
 
             await writer.FlushAsync();
             stream.Position = 0;
@@ -39,17 +42,27 @@ public static class JsonHelper
             }
             else if (property.Value.ValueKind == JsonValueKind.Object)
             {
+                writer.WriteStartObject(property.Name);
                 KeepOnlyKeysRecursive(property.Value, writer, keysToKeep);
+                writer.WriteEndObject();
             }
             else if (property.Value.ValueKind == JsonValueKind.Array)
             {
+                writer.WriteStartArray(property.Name);
                 foreach (var item in property.Value.EnumerateArray())
                 {
                     if (item.ValueKind == JsonValueKind.Object)
                     {
+                        writer.WriteStartObject();
                         KeepOnlyKeysRecursive(item, writer, keysToKeep);
+                        writer.WriteEndObject();
+                    }
+                    else
+                    {
+                        item.WriteTo(writer);
                     }
                 }
+                writer.WriteEndArray();
             }
         }
     }
