@@ -1,72 +1,47 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Text.Json;
-using System.Threading.Tasks;
-using CsvHelper;
-using CsvHelper.Configuration;
-using System.Dynamic;
-
-namespace FileOperations
+public static async Task<JsonDocument> KeepOnlyKeysAsync(JsonDocument inputJson, List<string> keysToKeep)
 {
-    public static class Converters
+    using (var stream = new MemoryStream())
+    using (var writer = new Utf8JsonWriter(stream))
     {
-        public static async Task<JsonDocument> CsvToJsonAsync(Stream csvStream)
+        if (inputJson.RootElement.ValueKind == JsonValueKind.Object)
         {
-            var config = new CsvConfiguration(System.Globalization.CultureInfo.InvariantCulture)
+            writer.WriteStartObject();
+            foreach (var property in inputJson.RootElement.EnumerateObject())
             {
-                IgnoreBlankLines = true,
-                BadDataFound = context => Console.WriteLine($"Bad data found at row {context.RawRow}"),
-                MissingFieldFound = null
-            };
-
-            using (var reader = new StreamReader(csvStream))
-            using (var csv = new CsvReader(reader, config))
-            {
-                var records = new List<dynamic>();
-                await foreach (var record in csv.GetRecordsAsync<ExpandoObject>())
+                if (keysToKeep.Contains(property.Name))
                 {
-                    records.Add(record);
-                }
-
-                using (var stream = new MemoryStream())
-                {
-                    await JsonSerializer.SerializeAsync(stream, records);
-                    stream.Position = 0;
-                    return await JsonDocument.ParseAsync(stream);
+                    property.WriteTo(writer);
                 }
             }
+            writer.WriteEndObject();
         }
-
-        public static async Task<JsonDocument> CsvToJsonAsync(string csvFilePath)
+        else if (inputJson.RootElement.ValueKind == JsonValueKind.Array)
         {
-            using (var fileStream = new FileStream(csvFilePath, FileMode.Open, FileAccess.Read))
+            writer.WriteStartArray();
+            foreach (var element in inputJson.RootElement.EnumerateArray())
             {
-                return await CsvToJsonAsync(fileStream);
+                if (element.ValueKind == JsonValueKind.Object)
+                {
+                    writer.WriteStartObject();
+                    foreach (var property in element.EnumerateObject())
+                    {
+                        if (keysToKeep.Contains(property.Name))
+                        {
+                            property.WriteTo(writer);
+                        }
+                    }
+                    writer.WriteEndObject();
+                }
+                else
+                {
+                    // If the element is not an object, write it as is
+                    element.WriteTo(writer);
+                }
             }
+            writer.WriteEndArray();
         }
-
-        public static async Task CsvToJsonAsync(JsonDocument jsonDocument, Stream csvStream)
-        {
-            var config = new CsvConfiguration(System.Globalization.CultureInfo.InvariantCulture)
-            {
-                IgnoreBlankLines = true,
-            };
-
-            using (var writer = new StreamWriter(csvStream))
-            using (var csv = new CsvWriter(writer, config))
-            {
-                var records = JsonSerializer.Deserialize<List<ExpandoObject>>(jsonDocument.RootElement.GetRawText());
-                await csv.WriteRecordsAsync(records);
-            }
-        }
-
-        public static async Task CsvToJsonAsync(JsonDocument jsonDocument, string csvFilePath)
-        {
-            using (var fileStream = new FileStream(csvFilePath, FileMode.Create, FileAccess.Write))
-            {
-                await CsvToJsonAsync(jsonDocument, fileStream);
-            }
-        }
+        await writer.FlushAsync();
+        stream.Position = 0;
+        return await JsonDocument.ParseAsync(stream);
     }
 }
