@@ -1,90 +1,91 @@
-public static async Task<JsonDocument> KeepOnlyColumnsAsync(Stream jsonStream, List<string> columnsToKeep)
+public static async Task<JsonDocument> KeepOnlyKeysAsync(JsonDocument inputJson, List<string> keysToKeep)
 {
-    using var doc = await JsonDocument.ParseAsync(jsonStream);
-    using var ms = new MemoryStream();
-    using var writer = new Utf8JsonWriter(ms);
-
-    writer.WriteStartObject();
-    foreach (var element in doc.RootElement.EnumerateObject())
+    using (var stream = new MemoryStream())
+    using (var writer = new Utf8JsonWriter(stream))
     {
-        if (columnsToKeep.Contains(element.Name))
-        {
-            element.WriteTo(writer);
-        }
-    }
-    writer.WriteEndObject();
-    await writer.FlushAsync();
-    ms.Position = 0;
+        writer.WriteStartObject();
 
-    return await JsonDocument.ParseAsync(ms);
+        foreach (var property in inputJson.RootElement.EnumerateObject())
+        {
+            if (keysToKeep.Contains(property.Name))
+            {
+                property.WriteTo(writer);
+            }
+        }
+
+        writer.WriteEndObject();
+        await writer.FlushAsync();
+        stream.Position = 0;
+        return await JsonDocument.ParseAsync(stream);
+    }
 }
 
-public static async Task<JsonDocument> FilterJsonAsync(Stream jsonStream, Dictionary<string, string> criteria)
+public static async Task<JsonDocument> RemoveKeysAsync(JsonDocument inputJson, List<string> keysToRemove)
 {
-    using var doc = await JsonDocument.ParseAsync(jsonStream);
-    using var ms = new MemoryStream();
-    using var writer = new Utf8JsonWriter(ms);
-
-    writer.WriteStartObject();
-    foreach (var element in doc.RootElement.EnumerateObject())
+    using (var stream = new MemoryStream())
+    using (var writer = new Utf8JsonWriter(stream))
     {
-        bool recordMatches = criteria.All(c =>
-            element.TryGetProperty(c.Key, out var prop) && prop.GetString() == c.Value);
-        if (recordMatches)
-        {
-            element.WriteTo(writer);
-        }
-    }
-    writer.WriteEndObject();
-    await writer.FlushAsync();
-    ms.Position = 0;
+        writer.WriteStartObject();
 
-    return await JsonDocument.ParseAsync(ms);
+        foreach (var property in inputJson.RootElement.EnumerateObject())
+        {
+            if (!keysToRemove.Contains(property.Name))
+            {
+                property.WriteTo(writer);
+            }
+        }
+
+        writer.WriteEndObject();
+        await writer.FlushAsync();
+        stream.Position = 0;
+        return await JsonDocument.ParseAsync(stream);
+    }
 }
 
-public static async Task<JsonDocument> FilterColumnByValuesAsync(Stream jsonStream, string key, List<string> values)
+public static async Task<JsonDocument> FilterJsonByValuesAsync(JsonDocument inputJson, Dictionary<string, List<string>> criteria)
 {
-    using var doc = await JsonDocument.ParseAsync(jsonStream);
-    using var ms = new MemoryStream();
-    using var writer = new Utf8JsonWriter(ms);
-
-    writer.WriteStartObject();
-    foreach (var element in doc.RootElement.EnumerateObject())
+    using (var stream = new MemoryStream())
+    using (var writer = new Utf8JsonWriter(stream))
     {
-        if (element.TryGetProperty(key, out var prop) && values.Contains(prop.GetString()))
-        {
-            element.WriteTo(writer);
-        }
-    }
-    writer.WriteEndObject();
-    await writer.FlushAsync();
-    ms.Position = 0;
+        writer.WriteStartObject();
 
-    return await JsonDocument.ParseAsync(ms);
+        foreach (var property in inputJson.RootElement.EnumerateObject())
+        {
+            if (criteria.TryGetValue(property.Name, out var values) && values.Contains(property.Value.GetString()))
+            {
+                property.WriteTo(writer);
+            }
+        }
+
+        writer.WriteEndObject();
+        await writer.FlushAsync();
+        stream.Position = 0;
+        return await JsonDocument.ParseAsync(stream);
+    }
 }
 
-public static async Task<JsonDocument> MultiplyKeyByValueAsync(Stream jsonStream, string key, double multiplier)
+public static async Task<JsonDocument> MultiplyKeyByValueAsync(JsonDocument inputJson, string key, double multiplier)
 {
-    using var doc = await JsonDocument.ParseAsync(jsonStream);
-    using var ms = new MemoryStream();
-    using var writer = new Utf8JsonWriter(ms);
-
-    writer.WriteStartObject();
-    foreach (var element in doc.RootElement.EnumerateObject())
+    using (var stream = new MemoryStream())
+    using (var writer = new Utf8JsonWriter(stream))
     {
-        if (element.TryGetProperty(key, out var prop) && prop.ValueKind == JsonValueKind.Number)
-        {
-            writer.WritePropertyName(element.Name);
-            writer.WriteNumberValue(prop.GetDouble() * multiplier);
-        }
-        else
-        {
-            element.WriteTo(writer);
-        }
-    }
-    writer.WriteEndObject();
-    await writer.FlushAsync();
-    ms.Position = 0;
+        writer.WriteStartObject();
 
-    return await JsonDocument.ParseAsync(ms);
+        foreach (var property in inputJson.RootElement.EnumerateObject())
+        {
+            if (property.Name.Equals(key, StringComparison.OrdinalIgnoreCase) && property.Value.TryGetDouble(out var number))
+            {
+                writer.WriteNumber(key, number * multiplier);
+            }
+            else
+            {
+                property.WriteTo(writer);
+            }
+        }
+
+        writer.WriteEndObject();
+        await writer.FlushAsync();
+        stream.Position = 0;
+        return await JsonDocument.ParseAsync(stream);
+    }
 }
