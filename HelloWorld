@@ -8,13 +8,7 @@ public static class JsonHelper
             if (inputJson.RootElement.ValueKind == JsonValueKind.Object)
             {
                 writer.WriteStartObject();
-                foreach (var property in inputJson.RootElement.EnumerateObject())
-                {
-                    if (keysToKeep.Contains(property.Name))
-                    {
-                        property.WriteTo(writer);
-                    }
-                }
+                KeepOnlyKeysRecursive(inputJson.RootElement, writer, keysToKeep);
                 writer.WriteEndObject();
             }
             else if (inputJson.RootElement.ValueKind == JsonValueKind.Array)
@@ -23,13 +17,7 @@ public static class JsonHelper
                 foreach (var element in inputJson.RootElement.EnumerateArray())
                 {
                     writer.WriteStartObject();
-                    foreach (var property in element.EnumerateObject())
-                    {
-                        if (keysToKeep.Contains(property.Name))
-                        {
-                            property.WriteTo(writer);
-                        }
-                    }
+                    KeepOnlyKeysRecursive(element, writer, keysToKeep);
                     writer.WriteEndObject();
                 }
                 writer.WriteEndArray();
@@ -37,6 +25,41 @@ public static class JsonHelper
             await writer.FlushAsync();
             stream.Position = 0;
             return await JsonDocument.ParseAsync(stream);
+        }
+    }
+
+    private static void KeepOnlyKeysRecursive(JsonElement element, Utf8JsonWriter writer, List<string> keysToKeep)
+    {
+        foreach (var property in element.EnumerateObject())
+        {
+            if (keysToKeep.Contains(property.Name))
+            {
+                property.WriteTo(writer);
+            }
+            else if (property.Value.ValueKind == JsonValueKind.Object)
+            {
+                writer.WriteStartObject(property.Name);
+                KeepOnlyKeysRecursive(property.Value, writer, keysToKeep);
+                writer.WriteEndObject();
+            }
+            else if (property.Value.ValueKind == JsonValueKind.Array)
+            {
+                writer.WriteStartArray(property.Name);
+                foreach (var item in property.Value.EnumerateArray())
+                {
+                    if (item.ValueKind == JsonValueKind.Object)
+                    {
+                        writer.WriteStartObject();
+                        KeepOnlyKeysRecursive(item, writer, keysToKeep);
+                        writer.WriteEndObject();
+                    }
+                    else
+                    {
+                        item.WriteTo(writer);
+                    }
+                }
+                writer.WriteEndArray();
+            }
         }
     }
 
