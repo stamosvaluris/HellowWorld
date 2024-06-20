@@ -1,62 +1,68 @@
-public static class Converters
+public static async Task Main(string[] args)
 {
-    // Converts CSV from stream to JsonDocument
-    public static async Task<JsonDocument> CsvToJsonAsync(Stream csvStream)
-    {
-        var config = new CsvConfiguration(CultureInfo.InvariantCulture)
-        {
-            IgnoreBlankLines = true,
-            MissingFieldFound = null,
-        };
+    Configuration config = Configuration.Load();
 
-        using var reader = new StreamReader(csvStream);
-        using var csv = new CsvReader(reader, config);
-        var records = new List<dynamic>();
-        await foreach (var record in csv.GetRecordsAsync<dynamic>())
+    var fisConfig = FisClient.Config;
+    var fisClient = new FisClient(fisConfig);
+    var accessToken = await fisClient.GetAccessTokenAsync();
+    var cpStaticDataService = new CpStaticDataService(fisConfig.BaseUrl, fisConfig.Services.CpStaticData.Endpoint);
+    JsonDocument cpStaticData = await cpStaticDataService.GetConditionalCounterpartyStaticDataAsync(accessToken, counterpartyName: null, config.CounterpartyCondition);
+    var jsonHelper = new JsonHelper();
+    var values2 = await jsonHelper.ExtractValuesByKeyAsync(cpStaticData, config.KeyToExtract);
+
+    var cpStaticDataReduced = await jsonHelper.KeepOnlyKeysAsync(cpStaticData, config.JsonColumnsToKeep);
+
+    SftpClient client = new SftpClient();
+    client.Connect(config.Host, config.Port, config.Username, config.Password);
+    client.ChangeDirectory(config.Files);
+    client.GetLastUploadedZipFile(PathHelper.GetTempFolderPath());
+    client.Disconnect();
+
+    string tempPath = PathHelper.GetTempFolderPath();
+    List<string> extractedSftpFiles = ZipHelper.ExtractLastImportedZipFile(tempPath);
+
+    var cpStaticDataComparisonKeys = await jsonHelper.ExtractValuesByKeyAsync(cpStaticDataReduced, config.KeyToExtract);
+
+    string outputPathStream = Path.Combine(tempPath, "output_streamed.json");
+    using (var inputStream = new FileStream(extractedSftpFiles[0], FileMode.Open, FileAccess.Read))
+    using (var memoryStream1 = new MemoryStream())
+    using (var memoryStream2 = new MemoryStream())
+    using (var memoryStream3 = new MemoryStream())
+    using (var memoryStream4 = new MemoryStream())
+    using (var memoryStream5 = new MemoryStream())
+    using (var memoryStream6 = new MemoryStream())
+    {
+        // Step 1: Filter CSV based on criteria
+        var sftpFileColFilteredRecordsStream = FileOperations.CsvHelper.FilterCsv(inputStream, config.Criteria);
+        await FileOperations.CsvHelper.WriteCsvAsync(memoryStream1, sftpFileColFilteredRecordsStream);
+        memoryStream1.Position = 0;
+
+        // Step 2: Keep only certain columns
+        var sftpFileColumnsStream = FileOperations.CsvHelper.KeepOnlyColumns(memoryStream1, config.CsvColumnsToKeep);
+        await FileOperations.CsvHelper.WriteCsvAsync(memoryStream2, sftpFileColumnsStream);
+        memoryStream2.Position = 0;
+
+        // Step 3: Filter CSV by column values
+        var finalFilteredRecordsStream = FileOperations.CsvHelper.FilterByColumnValues(memoryStream2, config.MarkitDataComparisonCol, cpStaticDataComparisonKeys);
+        await FileOperations.CsvHelper.WriteCsvAsync(memoryStream3, finalFilteredRecordsStream);
+        memoryStream3.Position = 0;
+
+        // Step 4: Convert filtered CSV to JSON
+        var csvToJson = await Converters.CsvToJsonAsync(memoryStream3);
+        memoryStream3.Position = 0;
+
+        // Step 5: Keep only keys in JSON
+        var slicedJson = await jsonHelper.KeepOnlyKeysAsync(csvToJson, config.JsonKeysToKeep);
+        memoryStream4.Position = 0;
+
+        // Step 6: Multiply keys by value in JSON
+        var multipliedJson = jsonHelper.MultiplyKeyByValueAsync(memoryStream4, config.Multiplicant, config.Multiplier);
+        memoryStream5.Position = 0;
+
+        // Step 7: Write final JSON to file
+        using (var outputStream = new FileStream(outputPathStream, FileMode.Create, FileAccess.Write))
         {
-            records.Add(record);
+            await jsonHelper.WriteJsonAsync(outputStream, multipliedJson);
         }
-
-        using var stream = new MemoryStream();
-        await JsonSerializer.SerializeAsync(stream, records);
-        stream.Position = 0;
-        return await JsonDocument.ParseAsync(stream);
-    }
-
-    // Converts CSV from file path to JsonDocument
-    public static async Task<JsonDocument> CsvToJsonAsync(string csvFilePath)
-    {
-        using var fileStream = new FileStream(csvFilePath, FileMode.Open, FileAccess.Read);
-        return await CsvToJsonAsync(fileStream);
-    }
-
-    // Converts CSV from a list of objects to JsonDocument
-    public static async Task<JsonDocument> CsvToJsonAsync(IEnumerable<object> csvRecords)
-    {
-        using var stream = new MemoryStream();
-        await JsonSerializer.SerializeAsync(stream, csvRecords);
-        stream.Position = 0;
-        return await JsonDocument.ParseAsync(stream);
-    }
-
-    // Converts JsonDocument to CSV and writes to stream
-    public static async Task CsvToJsonAsync(JsonDocument jsonDocument, Stream csvStream)
-    {
-        var config = new CsvConfiguration(CultureInfo.InvariantCulture)
-        {
-            IgnoreBlankLines = true
-        };
-
-        var records = JsonSerializer.Deserialize<List<ExpandoObject>>(jsonDocument.RootElement.GetRawText());
-        using var writer = new StreamWriter(csvStream);
-        using var csv = new CsvWriter(writer, config);
-        await csv.WriteRecordsAsync(records);
-    }
-
-    // Converts JsonDocument to CSV and writes to file path
-    public static async Task CsvToJsonAsync(JsonDocument jsonDocument, string csvFilePath)
-    {
-        using var fileStream = new FileStream(csvFilePath, FileMode.Create, FileAccess.Write);
-        await CsvToJsonAsync(jsonDocument, fileStream);
     }
 }
