@@ -1,103 +1,36 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Threading.Tasks;
-
-namespace CdsClient
+public static async Task WriteJsonAsync(string outputFilePath, JsonDocument jsonDocument)
 {
-    public static class Program
-    {
-        public static async Task Main(string[] args)
-        {
-            Configuration config = Configuration.Load();
+    using var fileStream = new FileStream(outputFilePath, FileMode.Create, FileAccess.Write, FileShare.None);
+    await WriteJsonAsync(fileStream, jsonDocument);
+}
 
-            // Load FIS configuration and get static data
-            var fisConfig = FisClient.Config.Configuration.LoadConfig(config.FisEnvironment);
-            var fisClient = new FisClient.Services.FisClient(fisConfig);
-            string accessToken = await fisClient.GetFisAccessTokenAsync(config.FisEnvironment);
-            var cpStaticDataService = new CpStaticDataService(fisConfig.BaseUrl, fisConfig.Services.CpStaticData.Endpoint);
-            JsonDocument staticData = await cpStaticDataService.GetConditionalCounterpartyStaticDataAsync(accessToken, null, config.CounterpartyCondition);
+public static async Task WriteJsonAsync(Stream outputStream, JsonDocument jsonDocument)
+{
+    var dynamicObject = ConvertJsonDocumentToDynamic(jsonDocument);
+    await WriteJsonAsync(outputStream, dynamicObject);
+}
 
-            var jsonHelper = new JsonHelper();
-            var values = await jsonHelper.ExtractValuesByKeyAsync(staticData, config.KeyToExtract);
+private static async Task WriteJsonAsync(TextWriter writer, dynamic obj)
+{
+    var options = new JsonSerializerOptions { WriteIndented = true };
+    var jsonString = JsonSerializer.Serialize(obj, options);
+    await writer.WriteAsync(jsonString);
+}
 
-            // Apply KeepOnlyKeysAsync on static data
-            var filteredStaticData = await JsonHelper.KeepOnlyKeysAsync(staticData, config.JsonColumnsToKeep);
+private static async Task WriteJsonAsync(Stream outputStream, dynamic obj)
+{
+    using var writer = new StreamWriter(outputStream, leaveOpen: true);
+    await WriteJsonAsync(writer, obj);
+}
 
-            // Paths for CSV operations
-            string tempPath1 = PathHelper.GetTempFolderPath();
-            string outputPathStream1 = Path.Combine(tempPath1, "output_streamed.csv");
-
-            // Load extracted files
-            List<string> extractedFiles = ZipHelper.ExtractLastImportedZipFile(PathHelper.GetTempFolderPath());
-
-            using (var inputStream = new FileStream(extractedFiles[0], FileMode.Open, FileAccess.Read))
-            using (var memoryStream = new MemoryStream())
-            {
-                // Step 1: Apply FilterCsv
-                var filteredRecords = await FileOperations.CsvHelper.FilterCsvAsync(inputStream, config.Criteria);
-                
-                // Reset memory stream position for next operation
-                memoryStream.Position = 0;
-                await FileOperations.CsvHelper.WriteCsvAsync(memoryStream, filteredRecords);
-
-                // Step 2: Apply KeepOnlyColumns on the filtered records
-                memoryStream.Position = 0; // Ensure the stream is at the beginning for reading
-                var columnsFilteredRecords = FileOperations.CsvHelper.KeepOnlyColumns(memoryStream, config.ColumnsToKeep);
-                
-                // Reset memory stream position for next operation
-                memoryStream.Position = 0;
-                await FileOperations.CsvHelper.WriteCsvAsync(memoryStream, columnsFilteredRecords);
-
-                // Step 3: Apply FilterByColumnValues on the filtered records
-                memoryStream.Position = 0; // Ensure the stream is at the beginning for reading
-                var finalFilteredRecords = FileOperations.CsvHelper.FilterByColumnValues(memoryStream, config.ComparisonColumn, values);
-
-                // Write final output to the CSV file
-                using (var outputStream = new FileStream(outputPathStream1, FileMode.Create, FileAccess.Write))
-                {
-                    await FileOperations.CsvHelper.WriteCsvAsync(outputStream, finalFilteredRecords);
-                }
-            }
-
-            SftpClient client = new SftpClient();
-            client.Connect(config.Host, config.Port, config.Username, config.Password);
-            client.ChangeDirectory(config.Files);
-            client.GetLastUploadedZipFile(PathHelper.GetTempFolderPath());
-
-            string tempPath2 = PathHelper.GetTempFolderPath();
-            string outputPathStream2 = Path.Combine(tempPath2, "output_filtered.csv");
-
-            using (var inputStream = new FileStream(extractedFiles[0], FileMode.Open, FileAccess.Read))
-            using (var memoryStream = new MemoryStream())
-            {
-                // Apply FilterCsv on extracted files
-                var filteredRecords = await FileOperations.CsvHelper.FilterCsvAsync(inputStream, config.Criteria);
-                
-                // Reset memory stream position for next operation
-                memoryStream.Position = 0;
-                await FileOperations.CsvHelper.WriteCsvAsync(memoryStream, filteredRecords);
-
-                // Apply KeepOnlyColumns on filtered records
-                memoryStream.Position = 0; // Ensure the stream is at the beginning for reading
-                var columnsFilteredRecords = FileOperations.CsvHelper.KeepOnlyColumns(memoryStream, config.ColumnsToKeep);
-                
-                // Reset memory stream position for next operation
-                memoryStream.Position = 0;
-                await FileOperations.CsvHelper.WriteCsvAsync(memoryStream, columnsFilteredRecords);
-
-                // Apply FilterByColumnValues on filtered records
-                memoryStream.Position = 0; // Ensure the stream is at the beginning for reading
-                var finalFilteredRecords = FileOperations.CsvHelper.FilterByColumnValues(memoryStream, config.ComparisonColumn, values);
-
-                // Write final output to the CSV file
-                using (var outputStream = new FileStream(outputPathStream2, FileMode.Create, FileAccess.Write))
-                {
-                    await FileOperations.CsvHelper.WriteCsvAsync(outputStream, finalFilteredRecords);
-                }
-            }
-
-            client.Disconnect();
-        }
-    }
+private static dynamic ConvertJsonDocumentToDynamic(JsonDocument jsonDocument)
+{
+    using var stream = new MemoryStream();
+    using var writer = new Utf8JsonWriter(stream);
+    jsonDocument.WriteTo(writer);
+    writer.Flush();
+    stream.Position = 0;
+    using var reader = new StreamReader(stream);
+    var jsonString = reader.ReadToEnd();
+    return JsonSerializer.Deserialize<dynamic>(jsonString);
 }
