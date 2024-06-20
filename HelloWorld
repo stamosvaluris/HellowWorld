@@ -1,108 +1,103 @@
-public static class JsonHelper
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Threading.Tasks;
+
+namespace CdsClient
 {
-    public static async Task<JsonDocument> KeepOnlyKeysAsync(JsonDocument inputJson, List<string> keysToKeep)
+    public static class Program
     {
-        using (var stream = new MemoryStream())
-        using (var writer = new Utf8JsonWriter(stream))
+        public static async Task Main(string[] args)
         {
-            if (inputJson.RootElement.ValueKind == JsonValueKind.Object)
+            Configuration config = Configuration.Load();
+
+            // Load FIS configuration and get static data
+            var fisConfig = FisClient.Config.Configuration.LoadConfig(config.FisEnvironment);
+            var fisClient = new FisClient.Services.FisClient(fisConfig);
+            string accessToken = await fisClient.GetFisAccessTokenAsync(config.FisEnvironment);
+            var cpStaticDataService = new CpStaticDataService(fisConfig.BaseUrl, fisConfig.Services.CpStaticData.Endpoint);
+            JsonDocument staticData = await cpStaticDataService.GetConditionalCounterpartyStaticDataAsync(accessToken, null, config.CounterpartyCondition);
+
+            var jsonHelper = new JsonHelper();
+            var values = await jsonHelper.ExtractValuesByKeyAsync(staticData, config.KeyToExtract);
+
+            // Apply KeepOnlyKeysAsync on static data
+            var filteredStaticData = await JsonHelper.KeepOnlyKeysAsync(staticData, config.JsonColumnsToKeep);
+
+            // Paths for CSV operations
+            string tempPath1 = PathHelper.GetTempFolderPath();
+            string outputPathStream1 = Path.Combine(tempPath1, "output_streamed.csv");
+
+            // Load extracted files
+            List<string> extractedFiles = ZipHelper.ExtractLastImportedZipFile(PathHelper.GetTempFolderPath());
+
+            using (var inputStream = new FileStream(extractedFiles[0], FileMode.Open, FileAccess.Read))
+            using (var memoryStream = new MemoryStream())
             {
-                writer.WriteStartObject();
-                KeepOnlyKeysRecursive(inputJson.RootElement, writer, keysToKeep);
-                writer.WriteEndObject();
-            }
-            else if (inputJson.RootElement.ValueKind == JsonValueKind.Array)
-            {
-                writer.WriteStartArray();
-                foreach (var element in inputJson.RootElement.EnumerateArray())
+                // Step 1: Apply FilterCsv
+                var filteredRecords = await FileOperations.CsvHelper.FilterCsvAsync(inputStream, config.Criteria);
+                
+                // Reset memory stream position for next operation
+                memoryStream.Position = 0;
+                await FileOperations.CsvHelper.WriteCsvAsync(memoryStream, filteredRecords);
+
+                // Step 2: Apply KeepOnlyColumns on the filtered records
+                memoryStream.Position = 0; // Ensure the stream is at the beginning for reading
+                var columnsFilteredRecords = FileOperations.CsvHelper.KeepOnlyColumns(memoryStream, config.ColumnsToKeep);
+                
+                // Reset memory stream position for next operation
+                memoryStream.Position = 0;
+                await FileOperations.CsvHelper.WriteCsvAsync(memoryStream, columnsFilteredRecords);
+
+                // Step 3: Apply FilterByColumnValues on the filtered records
+                memoryStream.Position = 0; // Ensure the stream is at the beginning for reading
+                var finalFilteredRecords = FileOperations.CsvHelper.FilterByColumnValues(memoryStream, config.ComparisonColumn, values);
+
+                // Write final output to the CSV file
+                using (var outputStream = new FileStream(outputPathStream1, FileMode.Create, FileAccess.Write))
                 {
-                    if (element.ValueKind == JsonValueKind.Object)
-                    {
-                        writer.WriteStartObject();
-                        KeepOnlyKeysRecursive(element, writer, keysToKeep);
-                        writer.WriteEndObject();
-                    }
-                }
-                writer.WriteEndArray();
-            }
-
-            await writer.FlushAsync();
-            stream.Position = 0;
-            return await JsonDocument.ParseAsync(stream);
-        }
-    }
-
-    private static void KeepOnlyKeysRecursive(JsonElement element, Utf8JsonWriter writer, List<string> keysToKeep)
-    {
-        foreach (var property in element.EnumerateObject())
-        {
-            if (keysToKeep.Contains(property.Name))
-            {
-                property.WriteTo(writer);
-            }
-            else if (property.Value.ValueKind == JsonValueKind.Object)
-            {
-                var nestedElement = property.Value;
-                using (var nestedStream = new MemoryStream())
-                using (var nestedWriter = new Utf8JsonWriter(nestedStream))
-                {
-                    nestedWriter.WriteStartObject();
-                    KeepOnlyKeysRecursive(nestedElement, nestedWriter, keysToKeep);
-                    nestedWriter.WriteEndObject();
-                    nestedWriter.Flush();
-                    nestedStream.Position = 0;
-
-                    var nestedJson = JsonDocument.Parse(nestedStream).RootElement;
-
-                    foreach (var nestedProperty in nestedJson.EnumerateObject())
-                    {
-                        if (keysToKeep.Contains(nestedProperty.Name))
-                        {
-                            nestedProperty.WriteTo(writer);
-                        }
-                    }
+                    await FileOperations.CsvHelper.WriteCsvAsync(outputStream, finalFilteredRecords);
                 }
             }
+
+            SftpClient client = new SftpClient();
+            client.Connect(config.Host, config.Port, config.Username, config.Password);
+            client.ChangeDirectory(config.Files);
+            client.GetLastUploadedZipFile(PathHelper.GetTempFolderPath());
+
+            string tempPath2 = PathHelper.GetTempFolderPath();
+            string outputPathStream2 = Path.Combine(tempPath2, "output_filtered.csv");
+
+            using (var inputStream = new FileStream(extractedFiles[0], FileMode.Open, FileAccess.Read))
+            using (var memoryStream = new MemoryStream())
+            {
+                // Apply FilterCsv on extracted files
+                var filteredRecords = await FileOperations.CsvHelper.FilterCsvAsync(inputStream, config.Criteria);
+                
+                // Reset memory stream position for next operation
+                memoryStream.Position = 0;
+                await FileOperations.CsvHelper.WriteCsvAsync(memoryStream, filteredRecords);
+
+                // Apply KeepOnlyColumns on filtered records
+                memoryStream.Position = 0; // Ensure the stream is at the beginning for reading
+                var columnsFilteredRecords = FileOperations.CsvHelper.KeepOnlyColumns(memoryStream, config.ColumnsToKeep);
+                
+                // Reset memory stream position for next operation
+                memoryStream.Position = 0;
+                await FileOperations.CsvHelper.WriteCsvAsync(memoryStream, columnsFilteredRecords);
+
+                // Apply FilterByColumnValues on filtered records
+                memoryStream.Position = 0; // Ensure the stream is at the beginning for reading
+                var finalFilteredRecords = FileOperations.CsvHelper.FilterByColumnValues(memoryStream, config.ComparisonColumn, values);
+
+                // Write final output to the CSV file
+                using (var outputStream = new FileStream(outputPathStream2, FileMode.Create, FileAccess.Write))
+                {
+                    await FileOperations.CsvHelper.WriteCsvAsync(outputStream, finalFilteredRecords);
+                }
+            }
+
+            client.Disconnect();
         }
-    }
-
-    public static async Task WriteJsonAsync(string folderPath, string fileName, JsonDocument jsonDocument)
-    {
-        var dynamicObject = ConvertJsonDocumentToDynamic(jsonDocument);
-        await WriteJsonAsync(folderPath, fileName, dynamicObject);
-    }
-
-    public static async Task WriteJsonAsync(string folderPath, string fileName, string jsonFilePath)
-    {
-        var jsonString = await File.ReadAllTextAsync(jsonFilePath);
-        var dynamicObject = JsonSerializer.Deserialize<dynamic>(jsonString);
-        await WriteJsonAsync(folderPath, fileName, dynamicObject);
-    }
-
-    private static async Task WriteJsonAsync(string folderPath, string fileName, dynamic obj)
-    {
-        var options = new JsonSerializerOptions { WriteIndented = true };
-        var jsonString = JsonSerializer.Serialize(obj, options);
-        await FileOperationsHelper.WriteFileAsync(folderPath, fileName, jsonString, "json");
-    }
-
-    private static dynamic ConvertJsonDocumentToDynamic(JsonDocument jsonDocument)
-    {
-        var jsonString = jsonDocument.RootElement.GetRawText();
-        return JsonSerializer.Deserialize<dynamic>(jsonString);
-    }
-}
-
-public static class FileOperationsHelper
-{
-    public static async Task WriteFileAsync(string folderPath, string fileName, string content, string extension)
-    {
-        if (!Directory.Exists(folderPath))
-        {
-            Directory.CreateDirectory(folderPath);
-        }
-
-        var filePath = Path.Combine(folderPath, $"{fileName}.{extension}");
-        await File.WriteAllTextAsync(filePath, content);
     }
 }
