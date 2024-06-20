@@ -1,36 +1,77 @@
-public static async Task WriteJsonAsync(string outputFilePath, JsonDocument jsonDocument)
+public static class JsonHelper
 {
-    using var fileStream = new FileStream(outputFilePath, FileMode.Create, FileAccess.Write, FileShare.None);
-    await WriteJsonAsync(fileStream, jsonDocument);
-}
+    public static async Task<JsonDocument> KeepOnlyKeysAsync(string inputFilePath, List<string> keysToKeep)
+    {
+        using var stream = new FileStream(inputFilePath, FileMode.Open, FileAccess.Read);
+        return await KeepOnlyKeysAsync(stream, keysToKeep);
+    }
 
-public static async Task WriteJsonAsync(Stream outputStream, JsonDocument jsonDocument)
-{
-    var dynamicObject = ConvertJsonDocumentToDynamic(jsonDocument);
-    await WriteJsonAsync(outputStream, dynamicObject);
-}
+    public static async Task<JsonDocument> KeepOnlyKeysAsync(Stream jsonStream, List<string> keysToKeep)
+    {
+        using var document = await JsonDocument.ParseAsync(jsonStream);
+        return await KeepOnlyKeysAsync(document, keysToKeep);
+    }
 
-private static async Task WriteJsonAsync(TextWriter writer, dynamic obj)
-{
-    var options = new JsonSerializerOptions { WriteIndented = true };
-    var jsonString = JsonSerializer.Serialize(obj, options);
-    await writer.WriteAsync(jsonString);
-}
+    private static async Task<JsonDocument> KeepOnlyKeysAsync(JsonDocument inputJson, List<string> keysToKeep)
+    {
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
+        {
+            if (inputJson.RootElement.ValueKind == JsonValueKind.Object)
+            {
+                writer.WriteStartObject();
+                KeepOnlyKeysRecursive(inputJson.RootElement, writer, keysToKeep);
+                writer.WriteEndObject();
+            }
+            else if (inputJson.RootElement.ValueKind == JsonValueKind.Array)
+            {
+                writer.WriteStartArray();
+                foreach (var element in inputJson.RootElement.EnumerateArray())
+                {
+                    if (element.ValueKind == JsonValueKind.Object)
+                    {
+                        writer.WriteStartObject();
+                        KeepOnlyKeysRecursive(element, writer, keysToKeep);
+                        writer.WriteEndObject();
+                    }
+                }
+                writer.WriteEndArray();
+            }
 
-private static async Task WriteJsonAsync(Stream outputStream, dynamic obj)
-{
-    using var writer = new StreamWriter(outputStream, leaveOpen: true);
-    await WriteJsonAsync(writer, obj);
-}
+            await writer.FlushAsync();
+        }
+        stream.Position = 0;
+        return await JsonDocument.ParseAsync(stream);
+    }
 
-private static dynamic ConvertJsonDocumentToDynamic(JsonDocument jsonDocument)
-{
-    using var stream = new MemoryStream();
-    using var writer = new Utf8JsonWriter(stream);
-    jsonDocument.WriteTo(writer);
-    writer.Flush();
-    stream.Position = 0;
-    using var reader = new StreamReader(stream);
-    var jsonString = reader.ReadToEnd();
-    return JsonSerializer.Deserialize<dynamic>(jsonString);
+    private static void KeepOnlyKeysRecursive(JsonElement element, Utf8JsonWriter writer, List<string> keysToKeep)
+    {
+        foreach (var property in element.EnumerateObject())
+        {
+            if (keysToKeep.Contains(property.Name))
+            {
+                property.WriteTo(writer);
+            }
+            else if (property.Value.ValueKind == JsonValueKind.Object)
+            {
+                using var nestedStream = new MemoryStream();
+                using (var nestedWriter = new Utf8JsonWriter(nestedStream))
+                {
+                    nestedWriter.WriteStartObject();
+                    KeepOnlyKeysRecursive(property.Value, nestedWriter, keysToKeep);
+                    nestedWriter.WriteEndObject();
+                    nestedWriter.Flush();
+                }
+                nestedStream.Position = 0;
+                var nestedJson = JsonDocument.Parse(nestedStream);
+                foreach (var nestedProperty in nestedJson.RootElement.EnumerateObject())
+                {
+                    if (keysToKeep.Contains(nestedProperty.Name))
+                    {
+                        nestedProperty.WriteTo(writer);
+                    }
+                }
+            }
+        }
+    }
 }
