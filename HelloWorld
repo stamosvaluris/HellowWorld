@@ -12,7 +12,7 @@ public static class JsonHelper
         return await KeepOnlyKeysAsync(document, keysToKeep);
     }
 
-    private static async Task<JsonDocument> KeepOnlyKeysAsync(JsonDocument inputJson, List<string> keysToKeep)
+    public static async Task<JsonDocument> KeepOnlyKeysAsync(JsonDocument inputJson, List<string> keysToKeep)
     {
         using var stream = new MemoryStream();
         using (var writer = new Utf8JsonWriter(stream))
