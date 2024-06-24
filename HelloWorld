@@ -1,88 +1,90 @@
 public static async Task<JsonDocument> MultiplyKeyByValueAsync(JsonDocument inputJson, string key, double multiplier)
 {
     using var stream = new MemoryStream();
-    using var writer = new Utf8JsonWriter(stream);
-
-    if (inputJson.RootElement.ValueKind == JsonValueKind.Object)
+    await using (var writer = new Utf8JsonWriter(stream))
     {
-        writer.WriteStartObject();
-        foreach (var property in inputJson.RootElement.EnumerateObject())
+        if (inputJson.RootElement.ValueKind == JsonValueKind.Object)
         {
-            if (property.Name == key)
+            writer.WriteStartObject();
+            foreach (var property in inputJson.RootElement.EnumerateObject())
             {
-                double value;
-                if (property.Value.ValueKind == JsonValueKind.Number)
+                if (property.Name == key)
                 {
-                    value = property.Value.GetDouble();
-                }
-                else if (property.Value.ValueKind == JsonValueKind.String && double.TryParse(property.Value.GetString(), out value))
-                {
-                    // Parsed string to double
-                }
-                else
-                {
-                    // Skip this property as it's not a number or a parsable string
-                    property.WriteTo(writer);
-                    continue;
-                }
-
-                writer.WritePropertyName(property.Name);
-                writer.WriteNumberValue(value * multiplier);
-            }
-            else
-            {
-                property.WriteTo(writer);
-            }
-        }
-        writer.WriteEndObject();
-    }
-    else if (inputJson.RootElement.ValueKind == JsonValueKind.Array)
-    {
-        writer.WriteStartArray();
-        foreach (var element in inputJson.RootElement.EnumerateArray())
-        {
-            if (element.ValueKind == JsonValueKind.Object)
-            {
-                writer.WriteStartObject();
-                foreach (var property in element.EnumerateObject())
-                {
-                    if (property.Name == key)
+                    double value;
+                    if (property.Value.ValueKind == JsonValueKind.Number)
                     {
-                        double value;
-                        if (property.Value.ValueKind == JsonValueKind.Number)
-                        {
-                            value = property.Value.GetDouble();
-                        }
-                        else if (property.Value.ValueKind == JsonValueKind.String && double.TryParse(property.Value.GetString(), out value))
-                        {
-                            // Parsed string to double
-                        }
-                        else
-                        {
-                            // Skip this property as it's not a number or a parsable string
-                            property.WriteTo(writer);
-                            continue;
-                        }
-
-                        writer.WritePropertyName(property.Name);
-                        writer.WriteNumberValue(value * multiplier);
+                        value = property.Value.GetDouble();
+                    }
+                    else if (property.Value.ValueKind == JsonValueKind.String && double.TryParse(property.Value.GetString(), out value))
+                    {
+                        // Parsed string to double
                     }
                     else
                     {
+                        // Skip this property as it's not a number or a parsable string
                         property.WriteTo(writer);
+                        continue;
                     }
+
+                    writer.WritePropertyName(property.Name);
+                    writer.WriteNumberValue(value * multiplier);
                 }
-                writer.WriteEndObject();
+                else
+                {
+                    property.WriteTo(writer);
+                }
             }
-            else
-            {
-                element.WriteTo(writer);
-            }
+            writer.WriteEndObject();
         }
-        writer.WriteEndArray();
+        else if (inputJson.RootElement.ValueKind == JsonValueKind.Array)
+        {
+            writer.WriteStartArray();
+            foreach (var element in inputJson.RootElement.EnumerateArray())
+            {
+                if (element.ValueKind == JsonValueKind.Object)
+                {
+                    writer.WriteStartObject();
+                    foreach (var property in element.EnumerateObject())
+                    {
+                        if (property.Name == key)
+                        {
+                            double value;
+                            if (property.Value.ValueKind == JsonValueKind.Number)
+                            {
+                                value = property.Value.GetDouble();
+                            }
+                            else if (property.Value.ValueKind == JsonValueKind.String && double.TryParse(property.Value.GetString(), out value))
+                            {
+                                // Parsed string to double
+                            }
+                            else
+                            {
+                                // Skip this property as it's not a number or a parsable string
+                                property.WriteTo(writer);
+                                continue;
+                            }
+
+                            writer.WritePropertyName(property.Name);
+                            writer.WriteNumberValue(value * multiplier);
+                        }
+                        else
+                        {
+                            property.WriteTo(writer);
+                        }
+                    }
+                    writer.WriteEndObject();
+                }
+                else
+                {
+                    element.WriteTo(writer);
+                }
+            }
+            writer.WriteEndArray();
+        }
+
+        await writer.FlushAsync();
     }
 
-    await writer.FlushAsync();
     stream.Position = 0;
     return await JsonDocument.ParseAsync(stream);
 }
