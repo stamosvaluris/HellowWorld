@@ -1,68 +1,81 @@
-public static async Task Main(string[] args)
+if (inputJson.RootElement.ValueKind == JsonValueKind.Object)
 {
-    Configuration config = Configuration.Load();
-
-    var fisConfig = FisClient.Config;
-    var fisClient = new FisClient(fisConfig);
-    var accessToken = await fisClient.GetAccessTokenAsync();
-    var cpStaticDataService = new CpStaticDataService(fisConfig.BaseUrl, fisConfig.Services.CpStaticData.Endpoint);
-    JsonDocument cpStaticData = await cpStaticDataService.GetConditionalCounterpartyStaticDataAsync(accessToken, counterpartyName: null, config.CounterpartyCondition);
-    var jsonHelper = new JsonHelper();
-    var values2 = await jsonHelper.ExtractValuesByKeyAsync(cpStaticData, config.KeyToExtract);
-
-    var cpStaticDataReduced = await jsonHelper.KeepOnlyKeysAsync(cpStaticData, config.JsonColumnsToKeep);
-
-    SftpClient client = new SftpClient();
-    client.Connect(config.Host, config.Port, config.Username, config.Password);
-    client.ChangeDirectory(config.Files);
-    client.GetLastUploadedZipFile(PathHelper.GetTempFolderPath());
-    client.Disconnect();
-
-    string tempPath = PathHelper.GetTempFolderPath();
-    List<string> extractedSftpFiles = ZipHelper.ExtractLastImportedZipFile(tempPath);
-
-    var cpStaticDataComparisonKeys = await jsonHelper.ExtractValuesByKeyAsync(cpStaticDataReduced, config.KeyToExtract);
-
-    string outputPathStream = Path.Combine(tempPath, "output_streamed.json");
-    using (var inputStream = new FileStream(extractedSftpFiles[0], FileMode.Open, FileAccess.Read))
-    using (var memoryStream1 = new MemoryStream())
-    using (var memoryStream2 = new MemoryStream())
-    using (var memoryStream3 = new MemoryStream())
-    using (var memoryStream4 = new MemoryStream())
-    using (var memoryStream5 = new MemoryStream())
-    using (var memoryStream6 = new MemoryStream())
+    writer.WriteStartObject();
+    foreach (var property in inputJson.RootElement.EnumerateObject())
     {
-        // Step 1: Filter CSV based on criteria
-        var sftpFileColFilteredRecordsStream = FileOperations.CsvHelper.FilterCsv(inputStream, config.Criteria);
-        await FileOperations.CsvHelper.WriteCsvAsync(memoryStream1, sftpFileColFilteredRecordsStream);
-        memoryStream1.Position = 0;
-
-        // Step 2: Keep only certain columns
-        var sftpFileColumnsStream = FileOperations.CsvHelper.KeepOnlyColumns(memoryStream1, config.CsvColumnsToKeep);
-        await FileOperations.CsvHelper.WriteCsvAsync(memoryStream2, sftpFileColumnsStream);
-        memoryStream2.Position = 0;
-
-        // Step 3: Filter CSV by column values
-        var finalFilteredRecordsStream = FileOperations.CsvHelper.FilterByColumnValues(memoryStream2, config.MarkitDataComparisonCol, cpStaticDataComparisonKeys);
-        await FileOperations.CsvHelper.WriteCsvAsync(memoryStream3, finalFilteredRecordsStream);
-        memoryStream3.Position = 0;
-
-        // Step 4: Convert filtered CSV to JSON
-        var csvToJson = await Converters.CsvToJsonAsync(memoryStream3);
-        memoryStream3.Position = 0;
-
-        // Step 5: Keep only keys in JSON
-        var slicedJson = await jsonHelper.KeepOnlyKeysAsync(csvToJson, config.JsonKeysToKeep);
-        memoryStream4.Position = 0;
-
-        // Step 6: Multiply keys by value in JSON
-        var multipliedJson = await jsonHelper.MultiplyKeyByValueAsync(memoryStream4, config.Multiplicant, config.Multiplier);
-        memoryStream5.Position = 0;
-
-        // Step 7: Write final JSON to file
-        using (var outputStream = new FileStream(outputPathStream, FileMode.Create, FileAccess.Write))
+        if (property.Name == key)
         {
-            await jsonHelper.WriteJsonAsync(outputStream, multipliedJson);
+            double value;
+            if (property.Value.ValueKind == JsonValueKind.Number)
+            {
+                value = property.Value.GetDouble();
+            }
+            else if (property.Value.ValueKind == JsonValueKind.String && double.TryParse(property.Value.GetString(), out value))
+            {
+                // Parsed string to double
+            }
+            else
+            {
+                // Skip this property as it's not a number or a parsable string
+                property.WriteTo(writer);
+                continue;
+            }
+
+            writer.WritePropertyName(property.Name);
+            writer.WriteNumberValue(value * multiplier);
+        }
+        else
+        {
+            property.WriteTo(writer);
         }
     }
+    writer.WriteEndObject();
 }
+else if (inputJson.RootElement.ValueKind == JsonValueKind.Array)
+{
+    writer.WriteStartArray();
+    foreach (var element in inputJson.RootElement.EnumerateArray())
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            writer.WriteStartObject();
+            foreach (var property in element.EnumerateObject())
+            {
+                if (property.Name == key)
+                {
+                    double value;
+                    if (property.Value.ValueKind == JsonValueKind.Number)
+                    {
+                        value = property.Value.GetDouble();
+                    }
+                    else if (property.Value.ValueKind == JsonValueKind.String && double.TryParse(property.Value.GetString(), out value))
+                    {
+                        // Parsed string to double
+                    }
+                    else
+                    {
+                        // Skip this property as it's not a number or a parsable string
+                        property.WriteTo(writer);
+                        continue;
+                    }
+
+                    writer.WritePropertyName(property.Name);
+                    writer.WriteNumberValue(value * multiplier);
+                }
+                else
+                {
+                    property.WriteTo(writer);
+                }
+            }
+            writer.WriteEndObject();
+        }
+        else
+        {
+            element.WriteTo(writer);
+        }
+    }
+    writer.WriteEndArray();
+}
+await writer.FlushAsync();
+stream.Position = 0;
+return await JsonDocument.ParseAsync(stream);
