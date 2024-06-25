@@ -1,63 +1,55 @@
-public static async Task<Stream> CombineJsonDocumentsAsync(Stream jsonStream1, Stream jsonStream2)
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Text.Json;
+using System.Threading.Tasks;
+
+public static class JsonHelper
 {
-    jsonStream1.Position = 0;
-    jsonStream2.Position = 0;
-
-    using var doc1 = await JsonDocument.ParseAsync(jsonStream1);
-    using var doc2 = await JsonDocument.ParseAsync(jsonStream2);
-
-    var combinedArray = new List<JsonElement>();
-
-    void AddElements(JsonDocument doc)
+    public static async Task<JsonDocument> CombineJsonDocumentsAsync(JsonDocument doc1, JsonDocument doc2)
     {
-        if (doc.RootElement.ValueKind == JsonValueKind.Array)
+        var combinedArray = new List<JsonElement>();
+
+        using (var doc1Array = doc1.RootElement.EnumerateArray())
+        using (var doc2Array = doc2.RootElement.EnumerateArray())
         {
-            foreach (var element in doc.RootElement.EnumerateArray())
+            while (doc1Array.MoveNext() && doc2Array.MoveNext())
             {
-                combinedArray.Add(element);
+                var combinedObject = new Dictionary<string, JsonElement>();
+
+                foreach (var property in doc1Array.Current.EnumerateObject())
+                {
+                    combinedObject[property.Name] = property.Value;
+                }
+
+                foreach (var property in doc2Array.Current.EnumerateObject())
+                {
+                    combinedObject[property.Name] = property.Value;
+                }
+
+                var combinedJsonObject = JsonDocument.Parse(JsonSerializer.Serialize(combinedObject)).RootElement;
+                combinedArray.Add(combinedJsonObject);
             }
         }
-        else
-        {
-            combinedArray.Add(doc.RootElement);
-        }
+
+        var combinedJsonString = JsonSerializer.Serialize(combinedArray);
+        return JsonDocument.Parse(combinedJsonString);
     }
 
-    AddElements(doc1);
-    AddElements(doc2);
-
-    var combinedJson = new MemoryStream();
-    await JsonSerializer.SerializeAsync(combinedJson, combinedArray);
-    combinedJson.Position = 0;
-
-    return combinedJson;
-}
-
-public static async Task<JsonDocument> CombineJsonDocumentsAsync(JsonDocument jsonDoc1, JsonDocument jsonDoc2)
-{
-    var combinedArray = new List<JsonElement>();
-
-    void AddElements(JsonDocument doc)
+    public static async Task<MemoryStream> CombineJsonStreamsAsync(MemoryStream stream1, MemoryStream stream2)
     {
-        if (doc.RootElement.ValueKind == JsonValueKind.Array)
-        {
-            foreach (var element in doc.RootElement.EnumerateArray())
-            {
-                combinedArray.Add(element);
-            }
-        }
-        else
-        {
-            combinedArray.Add(doc.RootElement);
-        }
+        stream1.Position = 0;
+        stream2.Position = 0;
+
+        var doc1 = await JsonDocument.ParseAsync(stream1);
+        var doc2 = await JsonDocument.ParseAsync(stream2);
+
+        var combinedDoc = await CombineJsonDocumentsAsync(doc1, doc2);
+
+        var combinedStream = new MemoryStream();
+        await JsonSerializer.SerializeAsync(combinedStream, combinedDoc);
+        combinedStream.Position = 0;
+
+        return combinedStream;
     }
-
-    AddElements(jsonDoc1);
-    AddElements(jsonDoc2);
-
-    var combinedJson = new MemoryStream();
-    await JsonSerializer.SerializeAsync(combinedJson, combinedArray);
-    combinedJson.Position = 0;
-
-    return await JsonDocument.ParseAsync(combinedJson);
 }
