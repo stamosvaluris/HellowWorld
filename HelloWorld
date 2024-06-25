@@ -1,12 +1,3 @@
-public static void WriteJson(Stream outputStream, IEnumerable<dynamic> records)
-{
-    using var writer = new StreamWriter(outputStream, leaveOpen: true);
-    var json = JsonSerializer.Serialize(records);
-    writer.Write(json);
-    writer.Flush();
-}
-
-
 public static void CsvToJson(Stream csvStream, Stream jsonOutputStream)
 {
     var config = new CsvConfiguration(CultureInfo.InvariantCulture)
@@ -25,4 +16,12 @@ public static void CsvToJson(Stream csvStream, Stream jsonOutputStream)
     }
 
     WriteJson(jsonOutputStream, records);
+}
+
+public static void WriteJson(Stream outputStream, IEnumerable<dynamic> records)
+{
+    using var writer = new StreamWriter(outputStream, leaveOpen: true);
+    var json = JsonSerializer.Serialize(records);
+    writer.Write(json);
+    writer.Flush();
 }
