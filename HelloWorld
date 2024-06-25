@@ -1,115 +1,118 @@
-public static JsonDocument MultiplyKeyByValue(JsonDocument inputJson, string key, double multiplier)
+public static class JsonHelper
 {
-    var jsonElement = inputJson.RootElement;
-    var modifiedJson = new List<Dictionary<string, object>>();
-
-    foreach (var element in jsonElement.EnumerateArray())
+    public static async Task<JsonDocument> MultiplyKeyByValueAsync(JsonDocument inputJson, string key, double multiplier)
     {
-        var record = new Dictionary<string, object>();
+        var jsonElement = inputJson.RootElement;
+        var modifiedJson = new List<Dictionary<string, object>>();
 
-        foreach (var property in element.EnumerateObject())
+        foreach (var element in jsonElement.EnumerateArray())
         {
-            if (property.Name == key)
+            var record = new Dictionary<string, object>();
+
+            foreach (var property in element.EnumerateObject())
             {
-                double value;
-                if (property.Value.ValueKind == JsonValueKind.Number)
+                if (property.Name == key)
                 {
-                    value = property.Value.GetDouble();
-                }
-                else if (property.Value.ValueKind == JsonValueKind.String)
-                {
-                    var stringValue = property.Value.GetString();
-                    if (double.TryParse(stringValue, NumberStyles.Any, CultureInfo.InvariantCulture, out double parsedValue))
+                    double value;
+                    if (property.Value.ValueKind == JsonValueKind.Number)
                     {
-                        value = parsedValue;
+                        value = property.Value.GetDouble();
+                    }
+                    else if (property.Value.ValueKind == JsonValueKind.String)
+                    {
+                        var stringValue = property.Value.GetString();
+                        if (double.TryParse(stringValue, NumberStyles.Any, CultureInfo.InvariantCulture, out double parsedValue))
+                        {
+                            value = parsedValue;
+                        }
+                        else
+                        {
+                            Console.WriteLine($"Skipping key {property.Name} as its value is not a number or a numeric string. Type: {property.Value.ValueKind}, Value: {stringValue}");
+                            record[property.Name] = stringValue;
+                            continue;
+                        }
                     }
                     else
                     {
-                        Console.WriteLine($"Skipping key {property.Name} as its value is not a number or a numeric string. Type: {property.Value.ValueKind}, Value: {stringValue}");
-                        record[property.Name] = stringValue;
+                        Console.WriteLine($"Skipping key {property.Name} as its value is not a number or a numeric string. Type: {property.Value.ValueKind}, Value: {property.Value}");
+                        record[property.Name] = property.Value;
                         continue;
                     }
+
+                    record[property.Name] = value * multiplier;
                 }
                 else
                 {
-                    Console.WriteLine($"Skipping key {property.Name} as its value is not a number or a numeric string. Type: {property.Value.ValueKind}, Value: {property.Value}");
                     record[property.Name] = property.Value;
-                    continue;
                 }
+            }
 
-                record[property.Name] = value * multiplier;
-            }
-            else
-            {
-                record[property.Name] = property.Value;
-            }
+            modifiedJson.Add(record);
         }
 
-        modifiedJson.Add(record);
+        var jsonString = JsonSerializer.Serialize(modifiedJson, new JsonSerializerOptions { WriteIndented = true });
+        var jsonDocument = JsonDocument.Parse(jsonString);
+        return await Task.FromResult(jsonDocument);
     }
 
-    var jsonString = JsonSerializer.Serialize(modifiedJson, new JsonSerializerOptions { WriteIndented = true });
-    var jsonDocument = JsonDocument.Parse(jsonString);
-    return jsonDocument;
-}
-
-public static async Task<Stream> MultiplyKeyByValueAsync(Stream inputJsonStream, string key, double multiplier)
-{
-    var inputJson = await JsonDocument.ParseAsync(inputJsonStream);
-    var jsonElement = inputJson.RootElement;
-    var modifiedJson = new List<Dictionary<string, object>>();
-
-    foreach (var element in jsonElement.EnumerateArray())
+    public static async Task<Stream> MultiplyKeyByValueAsync(Stream inputJsonStream, string key, double multiplier)
     {
-        var record = new Dictionary<string, object>();
+        var inputJson = await JsonDocument.ParseAsync(inputJsonStream);
+        var jsonElement = inputJson.RootElement;
+        var modifiedJson = new List<Dictionary<string, object>>();
 
-        foreach (var property in element.EnumerateObject())
+        foreach (var element in jsonElement.EnumerateArray())
         {
-            if (property.Name == key)
+            var record = new Dictionary<string, object>();
+
+            foreach (var property in element.EnumerateObject())
             {
-                double value;
-                if (property.Value.ValueKind == JsonValueKind.Number)
+                if (property.Name == key)
                 {
-                    value = property.Value.GetDouble();
-                }
-                else if (property.Value.ValueKind == JsonValueKind.String)
-                {
-                    var stringValue = property.Value.GetString();
-                    if (double.TryParse(stringValue, NumberStyles.Any, CultureInfo.InvariantCulture, out double parsedValue))
+                    double value;
+                    if (property.Value.ValueKind == JsonValueKind.Number)
                     {
-                        value = parsedValue;
+                        value = property.Value.GetDouble();
+                    }
+                    else if (property.Value.ValueKind == JsonValueKind.String)
+                    {
+                        var stringValue = property.Value.GetString();
+                        if (double.TryParse(stringValue, NumberStyles.Any, CultureInfo.InvariantCulture, out double parsedValue))
+                        {
+                            value = parsedValue;
+                        }
+                        else
+                        {
+                            Console.WriteLine($"Skipping key {property.Name} as its value is not a number or a numeric string. Type: {property.Value.ValueKind}, Value: {stringValue}");
+                            record[property.Name] = stringValue;
+                            continue;
+                        }
                     }
                     else
                     {
-                        Console.WriteLine($"Skipping key {property.Name} as its value is not a number or a numeric string. Type: {property.Value.ValueKind}, Value: {stringValue}");
-                        record[property.Name] = stringValue;
+                        Console.WriteLine($"Skipping key {property.Name} as its value is not a number or a numeric string. Type: {property.Value.ValueKind}, Value: {property.Value}");
+                        record[property.Name] = property.Value;
                         continue;
                     }
+
+                    record[property.Name] = value * multiplier;
                 }
                 else
                 {
-                    Console.WriteLine($"Skipping key {property.Name} as its value is not a number or a numeric string. Type: {property.Value.ValueKind}, Value: {property.Value}");
                     record[property.Name] = property.Value;
-                    continue;
                 }
+            }
 
-                record[property.Name] = value * multiplier;
-            }
-            else
-            {
-                record[property.Name] = property.Value;
-            }
+            modifiedJson.Add(record);
         }
 
-        modifiedJson.Add(record);
+        var jsonString = JsonSerializer.Serialize(modifiedJson, new JsonSerializerOptions { WriteIndented = true });
+        var outputStream = new MemoryStream();
+        var writer = new StreamWriter(outputStream);
+        await writer.WriteAsync(jsonString);
+        await writer.FlushAsync();
+        outputStream.Position = 0;
+
+        return outputStream;
     }
-
-    var jsonString = JsonSerializer.Serialize(modifiedJson, new JsonSerializerOptions { WriteIndented = true });
-    var outputStream = new MemoryStream();
-    var writer = new StreamWriter(outputStream);
-    await writer.WriteAsync(jsonString);
-    await writer.FlushAsync();
-    outputStream.Position = 0;
-
-    return outputStream;
 }
