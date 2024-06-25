@@ -1,5 +1,6 @@
-public static async Task<JsonDocument> MultiplyKeyByValueAsync(JsonDocument inputJson, string key, double multiplier)
+public static async Task<Stream> MultiplyKeyByValueAsync(Stream inputJsonStream, string key, double multiplier)
 {
+    var inputJson = await JsonDocument.ParseAsync(inputJsonStream);
     var jsonElement = inputJson.RootElement;
     var modifiedJson = new List<Dictionary<string, object>>();
 
@@ -37,11 +38,6 @@ public static async Task<JsonDocument> MultiplyKeyByValueAsync(JsonDocument inpu
                     continue;
                 }
 
-                Console.WriteLine($"property.Name: {property.Name}");
-                Console.WriteLine($"value: {value}");
-                Console.WriteLine($"multiplier: {multiplier}");
-                Console.WriteLine($"product: {value * multiplier}");
-
                 record[property.Name] = value * multiplier;
             }
             else
@@ -54,7 +50,11 @@ public static async Task<JsonDocument> MultiplyKeyByValueAsync(JsonDocument inpu
     }
 
     var jsonString = JsonSerializer.Serialize(modifiedJson, new JsonSerializerOptions { WriteIndented = true });
-    var jsonDocument = JsonDocument.Parse(jsonString);
+    var outputStream = new MemoryStream();
+    var writer = new StreamWriter(outputStream);
+    await writer.WriteAsync(jsonString);
+    await writer.FlushAsync();
+    outputStream.Position = 0;
 
-    return jsonDocument;
+    return outputStream;
 }
