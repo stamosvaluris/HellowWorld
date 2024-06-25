@@ -16,9 +16,19 @@ public static async Task<JsonDocument> MultiplyKeyByValueAsync(JsonDocument inpu
                 {
                     value = property.Value.GetDouble();
                 }
-                else if (property.Value.ValueKind == JsonValueKind.String && double.TryParse(property.Value.GetString(), out double parsedValue))
+                else if (property.Value.ValueKind == JsonValueKind.String)
                 {
-                    value = parsedValue;
+                    var stringValue = property.Value.GetString();
+                    if (double.TryParse(stringValue, NumberStyles.Any, CultureInfo.InvariantCulture, out double parsedValue))
+                    {
+                        value = parsedValue;
+                    }
+                    else
+                    {
+                        Console.WriteLine($"Skipping key {property.Name} as its value is not a number or a numeric string. Type: {property.Value.ValueKind}, Value: {stringValue}");
+                        record[property.Name] = stringValue;
+                        continue;
+                    }
                 }
                 else
                 {
