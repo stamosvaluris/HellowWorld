@@ -24,7 +24,7 @@ public static async Task<JsonDocument> MultiplyKeyByValueAsync(JsonDocument inpu
                 }
                 else
                 {
-                    Console.WriteLine($"Skipping key {property.Name} as its value is not a number or a numeric string. Type: {property.Value.ValueKind}");
+                    Console.WriteLine($"Skipping key {property.Name} as its value is not a number or a numeric string. Type: {property.Value.ValueKind}, Value: {property.Value}");
                     record[property.Name] = property.Value;
                     continue;
                 }
