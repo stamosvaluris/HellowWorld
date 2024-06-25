@@ -18,12 +18,12 @@ public static async Task<JsonDocument> MultiplyKeyByValueAsync(JsonDocument inpu
             }
             else
             {
-                property.WriteTo(writer);
+                property.Value.WriteTo(writer);
             }
         }
         else
         {
-            property.WriteTo(writer);
+            property.Value.WriteTo(writer);
         }
     }
 
