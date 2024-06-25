@@ -3,36 +3,25 @@ public static async Task<JsonDocument> MultiplyKeyByValueAsync(JsonDocument inpu
     using var stream = new MemoryStream();
     using var writer = new Utf8JsonWriter(stream);
 
-    void WriteProperty(Utf8JsonWriter writer, JsonProperty property)
-    {
-        writer.WritePropertyName(property.Name);
-        if (property.Name == key)
-        {
-            if (property.Value.ValueKind == JsonValueKind.Number)
-            {
-                writer.WriteNumberValue(property.Value.GetDouble() * multiplier);
-            }
-            else if (property.Value.ValueKind == JsonValueKind.String && double.TryParse(property.Value.GetString(), out double value))
-            {
-                writer.WriteNumberValue(value * multiplier);
-            }
-            else
-            {
-                property.Value.WriteTo(writer);
-            }
-        }
-        else
-        {
-            property.Value.WriteTo(writer);
-        }
-    }
-
     if (inputJson.RootElement.ValueKind == JsonValueKind.Object)
     {
         writer.WriteStartObject();
         foreach (var property in inputJson.RootElement.EnumerateObject())
         {
-            WriteProperty(writer, property);
+            if (property.Name == key && property.Value.ValueKind == JsonValueKind.Number)
+            {
+                writer.WritePropertyName(property.Name);
+                writer.WriteNumberValue(property.Value.GetDouble() * multiplier);
+            }
+            else if (property.Name == key && property.Value.ValueKind == JsonValueKind.String && double.TryParse(property.Value.GetString(), out double value))
+            {
+                writer.WritePropertyName(property.Name);
+                writer.WriteNumberValue(value * multiplier);
+            }
+            else
+            {
+                property.WriteTo(writer);
+            }
         }
         writer.WriteEndObject();
     }
@@ -46,7 +35,20 @@ public static async Task<JsonDocument> MultiplyKeyByValueAsync(JsonDocument inpu
                 writer.WriteStartObject();
                 foreach (var property in element.EnumerateObject())
                 {
-                    WriteProperty(writer, property);
+                    if (property.Name == key && property.Value.ValueKind == JsonValueKind.Number)
+                    {
+                        writer.WritePropertyName(property.Name);
+                        writer.WriteNumberValue(property.Value.GetDouble() * multiplier);
+                    }
+                    else if (property.Name == key && property.Value.ValueKind == JsonValueKind.String && double.TryParse(property.Value.GetString(), out double value))
+                    {
+                        writer.WritePropertyName(property.Name);
+                        writer.WriteNumberValue(value * multiplier);
+                    }
+                    else
+                    {
+                        property.WriteTo(writer);
+                    }
                 }
                 writer.WriteEndObject();
             }
@@ -57,7 +59,6 @@ public static async Task<JsonDocument> MultiplyKeyByValueAsync(JsonDocument inpu
         }
         writer.WriteEndArray();
     }
-
     await writer.FlushAsync();
     stream.Position = 0;
     return await JsonDocument.ParseAsync(stream);
