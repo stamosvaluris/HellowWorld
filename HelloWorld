@@ -1,3 +1,58 @@
+public static JsonDocument MultiplyKeyByValue(JsonDocument inputJson, string key, double multiplier)
+{
+    var jsonElement = inputJson.RootElement;
+    var modifiedJson = new List<Dictionary<string, object>>();
+
+    foreach (var element in jsonElement.EnumerateArray())
+    {
+        var record = new Dictionary<string, object>();
+
+        foreach (var property in element.EnumerateObject())
+        {
+            if (property.Name == key)
+            {
+                double value;
+                if (property.Value.ValueKind == JsonValueKind.Number)
+                {
+                    value = property.Value.GetDouble();
+                }
+                else if (property.Value.ValueKind == JsonValueKind.String)
+                {
+                    var stringValue = property.Value.GetString();
+                    if (double.TryParse(stringValue, NumberStyles.Any, CultureInfo.InvariantCulture, out double parsedValue))
+                    {
+                        value = parsedValue;
+                    }
+                    else
+                    {
+                        Console.WriteLine($"Skipping key {property.Name} as its value is not a number or a numeric string. Type: {property.Value.ValueKind}, Value: {stringValue}");
+                        record[property.Name] = stringValue;
+                        continue;
+                    }
+                }
+                else
+                {
+                    Console.WriteLine($"Skipping key {property.Name} as its value is not a number or a numeric string. Type: {property.Value.ValueKind}, Value: {property.Value}");
+                    record[property.Name] = property.Value;
+                    continue;
+                }
+
+                record[property.Name] = value * multiplier;
+            }
+            else
+            {
+                record[property.Name] = property.Value;
+            }
+        }
+
+        modifiedJson.Add(record);
+    }
+
+    var jsonString = JsonSerializer.Serialize(modifiedJson, new JsonSerializerOptions { WriteIndented = true });
+    var jsonDocument = JsonDocument.Parse(jsonString);
+    return jsonDocument;
+}
+
 public static async Task<Stream> MultiplyKeyByValueAsync(Stream inputJsonStream, string key, double multiplier)
 {
     var inputJson = await JsonDocument.ParseAsync(inputJsonStream);
