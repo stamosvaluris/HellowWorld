@@ -1,7 +1,7 @@
 public static async Task<JsonDocument> MultiplyKeyByValueAsync(JsonDocument inputJson, string key, double multiplier)
 {
     using var stream = new MemoryStream();
-    using var writer = new Utf8JsonWriter(stream);
+    await using var writer = new Utf8JsonWriter(stream);
 
     if (inputJson.RootElement.ValueKind == JsonValueKind.Object)
     {
@@ -59,6 +59,7 @@ public static async Task<JsonDocument> MultiplyKeyByValueAsync(JsonDocument inpu
         }
         writer.WriteEndArray();
     }
+
     await writer.FlushAsync();
     stream.Position = 0;
     return await JsonDocument.ParseAsync(stream);
