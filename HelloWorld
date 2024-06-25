@@ -1,40 +1,35 @@
 public static async Task<JsonDocument> MultiplyKeyByValueAsync(JsonDocument inputJson, string key, double multiplier)
 {
-    using (var stream = new MemoryStream())
-    using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))
+    var jsonElement = inputJson.RootElement;
+    var modifiedJson = new List<Dictionary<string, object>>();
+
+    foreach (var element in jsonElement.EnumerateArray())
     {
-        writer.WriteStartArray();
+        var record = new Dictionary<string, object>();
 
-        foreach (var element in inputJson.RootElement.EnumerateArray())
+        foreach (var property in element.EnumerateObject())
         {
-            writer.WriteStartObject();
-
-            foreach (var property in element.EnumerateObject())
+            if (property.Name == key && 
+                (property.Value.ValueKind == JsonValueKind.Number || 
+                (property.Value.ValueKind == JsonValueKind.String && double.TryParse(property.Value.GetString(), out double parsedValue))))
             {
-                writer.WritePropertyName(property.Name);
+                var value = property.Value.ValueKind == JsonValueKind.Number 
+                            ? property.Value.GetDouble() 
+                            : double.Parse(property.Value.GetString());
 
-                if (property.Name == key && (property.Value.ValueKind == JsonValueKind.Number || 
-                                             (property.Value.ValueKind == JsonValueKind.String && double.TryParse(property.Value.GetString(), out double parsedValue))))
-                {
-                    var value = property.Value.ValueKind == JsonValueKind.Number 
-                                ? property.Value.GetDouble() 
-                                : double.Parse(property.Value.GetString());
-
-                    writer.WriteNumberValue(value * multiplier);
-                }
-                else
-                {
-                    property.Value.WriteTo(writer);
-                }
+                record[property.Name] = value * multiplier;
             }
-
-            writer.WriteEndObject();
+            else
+            {
+                record[property.Name] = property.Value;
+            }
         }
 
-        writer.WriteEndArray();
-
-        await writer.FlushAsync();
-        stream.Position = 0;
-        return await JsonDocument.ParseAsync(stream);
+        modifiedJson.Add(record);
     }
+
+    var jsonString = JsonSerializer.Serialize(modifiedJson, new JsonSerializerOptions { WriteIndented = true });
+    var jsonDocument = JsonDocument.Parse(jsonString);
+
+    return jsonDocument;
 }
