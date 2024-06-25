@@ -11,8 +11,6 @@ public static async Task<JsonDocument> MultiplyKeyByValueAsync(JsonDocument inpu
         {
             if (property.Name == key)
             {
-                Console.WriteLine($"Found key: {property.Name}");
-
                 double value;
                 if (property.Value.ValueKind == JsonValueKind.Number)
                 {
