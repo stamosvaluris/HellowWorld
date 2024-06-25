@@ -8,9 +8,9 @@ public static async Task<JsonDocument> MultiplyKeyByValueAsync(JsonDocument inpu
         writer.WriteStartObject();
         foreach (var property in inputJson.RootElement.EnumerateObject())
         {
+            writer.WritePropertyName(property.Name);
             if (property.Name == key)
             {
-                writer.WritePropertyName(property.Name);
                 if (property.Value.ValueKind == JsonValueKind.Number)
                 {
                     writer.WriteNumberValue(property.Value.GetDouble() * multiplier);
@@ -41,9 +41,9 @@ public static async Task<JsonDocument> MultiplyKeyByValueAsync(JsonDocument inpu
                 writer.WriteStartObject();
                 foreach (var property in element.EnumerateObject())
                 {
+                    writer.WritePropertyName(property.Name);
                     if (property.Name == key)
                     {
-                        writer.WritePropertyName(property.Name);
                         if (property.Value.ValueKind == JsonValueKind.Number)
                         {
                             writer.WriteNumberValue(property.Value.GetDouble() * multiplier);
