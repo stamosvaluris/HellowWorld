@@ -9,15 +9,28 @@ public static async Task<JsonDocument> MultiplyKeyByValueAsync(JsonDocument inpu
 
         foreach (var property in element.EnumerateObject())
         {
-            if (property.Name == key && 
-                (property.Value.ValueKind == JsonValueKind.Number || 
-                (property.Value.ValueKind == JsonValueKind.String && double.TryParse(property.Value.GetString(), out double parsedValue))))
+            if (property.Name == key)
             {
-                var value = property.Value.ValueKind == JsonValueKind.Number 
-                            ? property.Value.GetDouble() 
-                            : double.Parse(property.Value.GetString());
+                Console.WriteLine($"Found key: {property.Name}");
 
-                record[property.Name] = value * multiplier;
+                if (property.Value.ValueKind == JsonValueKind.Number || 
+                    (property.Value.ValueKind == JsonValueKind.String && double.TryParse(property.Value.GetString(), out double parsedValue)))
+                {
+                    var value = property.Value.ValueKind == JsonValueKind.Number 
+                                ? property.Value.GetDouble() 
+                                : double.Parse(property.Value.GetString());
+
+                    Console.WriteLine($"property.Name: {property.Name}");
+                    Console.WriteLine($"value: {value}");
+                    Console.WriteLine($"multiplier: {multiplier}");
+                    Console.WriteLine($"product: {value * multiplier}");
+
+                    record[property.Name] = value * multiplier;
+                }
+                else
+                {
+                    record[property.Name] = property.Value;
+                }
             }
             else
             {
