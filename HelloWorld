@@ -7,13 +7,26 @@ using System.Threading.Tasks;
 
 public static class JsonHelper
 {
-    public static async Task<JsonDocument> ReplaceKeysInJsonDocumentAsync(JsonDocument inputJson, Dictionary<string, string> replacements)
+    public static async Task<JsonDocument> ReplaceKeysAsync(JsonDocument inputJson, Dictionary<string, string> replacements)
     {
         var rootElement = inputJson.RootElement;
         var modifiedJson = ReplaceKeysInJsonElement(rootElement, replacements);
         
         var modifiedJsonString = JsonSerializer.Serialize(modifiedJson);
         return JsonDocument.Parse(modifiedJsonString);
+    }
+
+    public static async Task<MemoryStream> ReplaceKeysAsync(MemoryStream inputStream, Dictionary<string, string> replacements)
+    {
+        inputStream.Position = 0;
+        var inputJson = await JsonDocument.ParseAsync(inputStream);
+        var modifiedJsonDoc = await ReplaceKeysAsync(inputJson, replacements);
+
+        var modifiedStream = new MemoryStream();
+        await JsonSerializer.SerializeAsync(modifiedStream, modifiedJsonDoc);
+        modifiedStream.Position = 0;
+
+        return modifiedStream;
     }
 
     private static JsonElement ReplaceKeysInJsonElement(JsonElement element, Dictionary<string, string> replacements)
@@ -40,18 +53,5 @@ public static class JsonHelper
             default:
                 return element;
         }
-    }
-
-    public static async Task<MemoryStream> ReplaceKeysInJsonStreamAsync(MemoryStream inputStream, Dictionary<string, string> replacements)
-    {
-        inputStream.Position = 0;
-        var inputJson = await JsonDocument.ParseAsync(inputStream);
-        var modifiedJsonDoc = await ReplaceKeysInJsonDocumentAsync(inputJson, replacements);
-
-        var modifiedStream = new MemoryStream();
-        await JsonSerializer.SerializeAsync(modifiedStream, modifiedJsonDoc);
-        modifiedStream.Position = 0;
-
-        return modifiedStream;
     }
 }
