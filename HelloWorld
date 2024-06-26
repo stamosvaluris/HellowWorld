@@ -2,54 +2,56 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 
 public static class JsonHelper
 {
-    public static async Task<JsonDocument> CombineJsonDocumentsAsync(JsonDocument doc1, JsonDocument doc2)
+    public static async Task<JsonDocument> ReplaceKeysInJsonDocumentAsync(JsonDocument inputJson, Dictionary<string, string> replacements)
     {
-        var combinedArray = new List<JsonElement>();
-
-        using (var doc1Array = doc1.RootElement.EnumerateArray())
-        using (var doc2Array = doc2.RootElement.EnumerateArray())
-        {
-            while (doc1Array.MoveNext() && doc2Array.MoveNext())
-            {
-                var combinedObject = new Dictionary<string, JsonElement>();
-
-                foreach (var property in doc1Array.Current.EnumerateObject())
-                {
-                    combinedObject[property.Name] = property.Value;
-                }
-
-                foreach (var property in doc2Array.Current.EnumerateObject())
-                {
-                    combinedObject[property.Name] = property.Value;
-                }
-
-                var combinedJsonObject = JsonDocument.Parse(JsonSerializer.Serialize(combinedObject)).RootElement;
-                combinedArray.Add(combinedJsonObject);
-            }
-        }
-
-        var combinedJsonString = JsonSerializer.Serialize(combinedArray);
-        return JsonDocument.Parse(combinedJsonString);
+        var rootElement = inputJson.RootElement;
+        var modifiedJson = ReplaceKeysInJsonElement(rootElement, replacements);
+        
+        var modifiedJsonString = JsonSerializer.Serialize(modifiedJson);
+        return JsonDocument.Parse(modifiedJsonString);
     }
 
-    public static async Task<MemoryStream> CombineJsonStreamsAsync(MemoryStream stream1, MemoryStream stream2)
+    private static JsonElement ReplaceKeysInJsonElement(JsonElement element, Dictionary<string, string> replacements)
     {
-        stream1.Position = 0;
-        stream2.Position = 0;
+        switch (element.ValueKind)
+        {
+            case JsonValueKind.Object:
+                var modifiedObject = new Dictionary<string, JsonElement>();
+                foreach (var property in element.EnumerateObject())
+                {
+                    var newKey = replacements.ContainsKey(property.Name) ? replacements[property.Name] : property.Name;
+                    modifiedObject[newKey] = ReplaceKeysInJsonElement(property.Value, replacements);
+                }
+                return JsonDocument.Parse(JsonSerializer.Serialize(modifiedObject)).RootElement;
 
-        var doc1 = await JsonDocument.ParseAsync(stream1);
-        var doc2 = await JsonDocument.ParseAsync(stream2);
+            case JsonValueKind.Array:
+                var modifiedArray = new List<JsonElement>();
+                foreach (var item in element.EnumerateArray())
+                {
+                    modifiedArray.Add(ReplaceKeysInJsonElement(item, replacements));
+                }
+                return JsonDocument.Parse(JsonSerializer.Serialize(modifiedArray)).RootElement;
 
-        var combinedDoc = await CombineJsonDocumentsAsync(doc1, doc2);
+            default:
+                return element;
+        }
+    }
 
-        var combinedStream = new MemoryStream();
-        await JsonSerializer.SerializeAsync(combinedStream, combinedDoc);
-        combinedStream.Position = 0;
+    public static async Task<MemoryStream> ReplaceKeysInJsonStreamAsync(MemoryStream inputStream, Dictionary<string, string> replacements)
+    {
+        inputStream.Position = 0;
+        var inputJson = await JsonDocument.ParseAsync(inputStream);
+        var modifiedJsonDoc = await ReplaceKeysInJsonDocumentAsync(inputJson, replacements);
 
-        return combinedStream;
+        var modifiedStream = new MemoryStream();
+        await JsonSerializer.SerializeAsync(modifiedStream, modifiedJsonDoc);
+        modifiedStream.Position = 0;
+
+        return modifiedStream;
     }
 }
