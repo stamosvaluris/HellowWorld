@@ -1,29 +1,10 @@
 using System;
 using System.IO;
 using System.Security.Cryptography;
-using System.Text;
 
-class Program
+public class Encryption
 {
-    static void Main()
-    {
-        string filePath = "credentials.json";
-        string encryptedFilePath = "encrypted_credentials.json";
-        string keyPath = "secret.key";
-
-        // Generate a key and save it
-        using (Aes aes = Aes.Create())
-        {
-            aes.GenerateKey();
-            File.WriteAllBytes(keyPath, aes.Key);
-
-            // Encrypt the file
-            byte[] encrypted = EncryptFile(filePath, aes.Key);
-            File.WriteAllBytes(encryptedFilePath, encrypted);
-        }
-    }
-
-    static byte[] EncryptFile(string filePath, byte[] key)
+    public byte[] EncryptFile(string filePath, byte[] key)
     {
         using (Aes aes = Aes.Create())
         {
@@ -46,31 +27,25 @@ class Program
             return encrypted;
         }
     }
+
+    public byte[] GenerateKey()
+    {
+        using (Aes aes = Aes.Create())
+        {
+            aes.GenerateKey();
+            return aes.Key;
+        }
+    }
 }
 
 
-
- using System;
+using System;
 using System.IO;
 using System.Security.Cryptography;
-using System.Text;
 
-class Program
+public class Decryption
 {
-    static void Main()
-    {
-        string encryptedFilePath = "encrypted_credentials.json";
-        string decryptedFilePath = "decrypted_credentials.json";
-        string keyPath = "secret.key";
-
-        byte[] key = File.ReadAllBytes(keyPath);
-
-        // Decrypt the file
-        byte[] decrypted = DecryptFile(encryptedFilePath, key);
-        File.WriteAllBytes(decryptedFilePath, decrypted);
-    }
-
-    static byte[] DecryptFile(string encryptedFilePath, byte[] key)
+    public byte[] DecryptFile(string encryptedFilePath, byte[] key)
     {
         using (Aes aes = Aes.Create())
         {
@@ -97,7 +72,35 @@ class Program
 }
 
 
-let
-    Source = Json.Document(File.Contents("path\to\decrypted_credentials.json"))
-in
-    Source
+
+using System;
+using System.IO;
+
+class Program
+{
+    static void Main()
+    {
+        string filePath = "credentials.json";
+        string encryptedFilePath = "encrypted_credentials.json";
+        string decryptedFilePath = "decrypted_credentials.json";
+        string keyPath = "secret.key";
+
+        var encryption = new Encryption();
+        var decryption = new Decryption();
+
+        // Generate a key and save it
+        byte[] key = encryption.GenerateKey();
+        File.WriteAllBytes(keyPath, key);
+
+        // Encrypt the file
+        byte[] encrypted = encryption.EncryptFile(filePath, key);
+        File.WriteAllBytes(encryptedFilePath, encrypted);
+
+        // Read the key back
+        byte[] savedKey = File.ReadAllBytes(keyPath);
+
+        // Decrypt the file
+        byte[] decrypted = decryption.DecryptFile(encryptedFilePath, savedKey);
+        File.WriteAllBytes(decryptedFilePath, decrypted);
+    }
+}
