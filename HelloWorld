@@ -1,57 +1,103 @@
 using System;
-using System.Collections.Generic;
 using System.IO;
-using System.Text.Json;
-using System.Text.Json.Serialization;
-using System.Threading.Tasks;
+using System.Security.Cryptography;
+using System.Text;
 
-public static class JsonHelper
+class Program
 {
-    public static async Task<JsonDocument> ReplaceKeysAsync(JsonDocument inputJson, Dictionary<string, string> replacements)
+    static void Main()
     {
-        var rootElement = inputJson.RootElement;
-        var modifiedJson = ReplaceKeysInJsonElement(rootElement, replacements);
-        
-        var modifiedJsonString = JsonSerializer.Serialize(modifiedJson);
-        return JsonDocument.Parse(modifiedJsonString);
-    }
+        string filePath = "credentials.json";
+        string encryptedFilePath = "encrypted_credentials.json";
+        string keyPath = "secret.key";
 
-    public static async Task<MemoryStream> ReplaceKeysAsync(MemoryStream inputStream, Dictionary<string, string> replacements)
-    {
-        inputStream.Position = 0;
-        var inputJson = await JsonDocument.ParseAsync(inputStream);
-        var modifiedJsonDoc = await ReplaceKeysAsync(inputJson, replacements);
-
-        var modifiedStream = new MemoryStream();
-        await JsonSerializer.SerializeAsync(modifiedStream, modifiedJsonDoc);
-        modifiedStream.Position = 0;
-
-        return modifiedStream;
-    }
-
-    private static JsonElement ReplaceKeysInJsonElement(JsonElement element, Dictionary<string, string> replacements)
-    {
-        switch (element.ValueKind)
+        // Generate a key and save it
+        using (Aes aes = Aes.Create())
         {
-            case JsonValueKind.Object:
-                var modifiedObject = new Dictionary<string, JsonElement>();
-                foreach (var property in element.EnumerateObject())
-                {
-                    var newKey = replacements.ContainsKey(property.Name) ? replacements[property.Name] : property.Name;
-                    modifiedObject[newKey] = ReplaceKeysInJsonElement(property.Value, replacements);
-                }
-                return JsonDocument.Parse(JsonSerializer.Serialize(modifiedObject)).RootElement;
+            aes.GenerateKey();
+            File.WriteAllBytes(keyPath, aes.Key);
 
-            case JsonValueKind.Array:
-                var modifiedArray = new List<JsonElement>();
-                foreach (var item in element.EnumerateArray())
-                {
-                    modifiedArray.Add(ReplaceKeysInJsonElement(item, replacements));
-                }
-                return JsonDocument.Parse(JsonSerializer.Serialize(modifiedArray)).RootElement;
+            // Encrypt the file
+            byte[] encrypted = EncryptFile(filePath, aes.Key);
+            File.WriteAllBytes(encryptedFilePath, encrypted);
+        }
+    }
 
-            default:
-                return element;
+    static byte[] EncryptFile(string filePath, byte[] key)
+    {
+        using (Aes aes = Aes.Create())
+        {
+            aes.Key = key;
+            aes.GenerateIV();
+            byte[] iv = aes.IV;
+            byte[] encrypted;
+
+            using (FileStream fs = new FileStream(filePath, FileMode.Open, FileAccess.Read))
+            using (MemoryStream ms = new MemoryStream())
+            {
+                ms.Write(iv, 0, iv.Length);
+                using (CryptoStream cs = new CryptoStream(ms, aes.CreateEncryptor(), CryptoStreamMode.Write))
+                {
+                    fs.CopyTo(cs);
+                }
+                encrypted = ms.ToArray();
+            }
+
+            return encrypted;
         }
     }
 }
+
+
+
+ using System;
+using System.IO;
+using System.Security.Cryptography;
+using System.Text;
+
+class Program
+{
+    static void Main()
+    {
+        string encryptedFilePath = "encrypted_credentials.json";
+        string decryptedFilePath = "decrypted_credentials.json";
+        string keyPath = "secret.key";
+
+        byte[] key = File.ReadAllBytes(keyPath);
+
+        // Decrypt the file
+        byte[] decrypted = DecryptFile(encryptedFilePath, key);
+        File.WriteAllBytes(decryptedFilePath, decrypted);
+    }
+
+    static byte[] DecryptFile(string encryptedFilePath, byte[] key)
+    {
+        using (Aes aes = Aes.Create())
+        {
+            aes.Key = key;
+            byte[] iv = new byte[aes.BlockSize / 8];
+            byte[] decrypted;
+
+            using (FileStream fs = new FileStream(encryptedFilePath, FileMode.Open, FileAccess.Read))
+            {
+                fs.Read(iv, 0, iv.Length);
+
+                using (MemoryStream ms = new MemoryStream())
+                using (CryptoStream cs = new CryptoStream(ms, aes.CreateDecryptor(aes.Key, iv), CryptoStreamMode.Write))
+                {
+                    fs.CopyTo(cs);
+                    cs.FlushFinalBlock();
+                    decrypted = ms.ToArray();
+                }
+            }
+
+            return decrypted;
+        }
+    }
+}
+
+
+let
+    Source = Json.Document(File.Contents("path\to\decrypted_credentials.json"))
+in
+    Source
