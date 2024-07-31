@@ -1,20 +1,35 @@
 using System;
 using System.IO;
 using System.Security.Cryptography;
+using System.Threading.Tasks;
+using Azure.Identity;
+using Azure.Security.KeyVault.Secrets;
 
 public class Encryption
 {
-    public void GenerateAndSaveKeyAndIV(string keyPath, string ivPath)
+    private readonly SecretClient secretClient;
+
+    public Encryption(string keyVaultUrl)
+    {
+        secretClient = new SecretClient(new Uri(keyVaultUrl), new DefaultAzureCredential());
+    }
+
+    public async Task GenerateAndSaveKeyAndIVAsync(string keyName, string ivName)
     {
         using (Aes aes = Aes.Create())
         {
             aes.GenerateKey();
-            File.WriteAllBytes(keyPath, aes.Key);
-
             aes.GenerateIV();
-            File.WriteAllBytes(ivPath, aes.IV);
 
-            Console.WriteLine("AES Key and IV have been generated and saved.");
+            // Convert to Base64
+            string base64Key = Convert.ToBase64String(aes.Key);
+            string base64IV = Convert.ToBase64String(aes.IV);
+
+            // Store in Azure Key Vault
+            await secretClient.SetSecretAsync(new KeyVaultSecret(keyName, base64Key));
+            await secretClient.SetSecretAsync(new KeyVaultSecret(ivName, base64IV));
+
+            Console.WriteLine("AES Key and IV have been generated and saved to Azure Key Vault.");
         }
     }
 
@@ -41,15 +56,31 @@ public class Encryption
     }
 }
 
-
 using System;
 using System.IO;
 using System.Security.Cryptography;
+using System.Threading.Tasks;
+using Azure.Identity;
+using Azure.Security.KeyVault.Secrets;
 
 public class Decryption
 {
-    public byte[] DecryptFile(string encryptedFilePath, byte[] key, byte[] iv)
+    private readonly SecretClient secretClient;
+
+    public Decryption(string keyVaultUrl)
     {
+        secretClient = new SecretClient(new Uri(keyVaultUrl), new DefaultAzureCredential());
+    }
+
+    public async Task<byte[]> DecryptFileAsync(string encryptedFilePath, string keyName, string ivName)
+    {
+        // Retrieve key and IV from Azure Key Vault
+        KeyVaultSecret keySecret = await secretClient.GetSecretAsync(keyName);
+        KeyVaultSecret ivSecret = await secretClient.GetSecretAsync(ivName);
+
+        byte[] key = Convert.FromBase64String(keySecret.Value);
+        byte[] iv = Convert.FromBase64String(ivSecret.Value);
+
         using (Aes aes = Aes.Create())
         {
             aes.Key = key;
@@ -70,36 +101,40 @@ public class Decryption
     }
 }
 
-
 using System;
 using System.IO;
+using System.Threading.Tasks;
 
 class Program
 {
-    static void Main()
+    static async Task Main(string[] args)
     {
         string filePath = "credentials.json";
         string encryptedFilePath = "encrypted_credentials.json";
         string decryptedFilePath = "decrypted_credentials.json";
-        string keyPath = "aesKey.key";
-        string ivPath = "aesIV.iv";
+        string keyVaultUrl = "https://your-key-vault-name.vault.azure.net/";
+        string keyName = "aesKey";
+        string ivName = "aesIV";
 
-        var encryption = new Encryption();
-        var decryption = new Decryption();
+        var encryption = new Encryption(keyVaultUrl);
+        var decryption = new Decryption(keyVaultUrl);
 
-        // Generate and save key and IV
-        encryption.GenerateAndSaveKeyAndIV(keyPath, ivPath);
+        // Generate and save key and IV in Azure Key Vault
+        await encryption.GenerateAndSaveKeyAndIVAsync(keyName, ivName);
 
-        // Load the key and IV from files
-        byte[] key = File.ReadAllBytes(keyPath);
-        byte[] iv = File.ReadAllBytes(ivPath);
+        // Load the key and IV from Azure Key Vault
+        KeyVaultSecret keySecret = await encryption.secretClient.GetSecretAsync(keyName);
+        KeyVaultSecret ivSecret = await encryption.secretClient.GetSecretAsync(ivName);
+        byte[] key = Convert.FromBase64String(keySecret.Value);
+        byte[] iv = Convert.FromBase64String(ivSecret.Value);
 
         // Encrypt the file
         byte[] encrypted = encryption.EncryptFile(filePath, key, iv);
         File.WriteAllBytes(encryptedFilePath, encrypted);
 
         // Decrypt the file
-        byte[] decrypted = decryption.DecryptFile(encryptedFilePath, key, iv);
+        byte[] decrypted = await decryption.DecryptFileAsync(encryptedFilePath, keyName, ivName);
         File.WriteAllBytes(decryptedFilePath, decrypted);
     }
 }
+
