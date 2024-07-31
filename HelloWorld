@@ -4,19 +4,31 @@ using System.Security.Cryptography;
 
 public class Encryption
 {
-    public byte[] EncryptFile(string filePath, byte[] key)
+    public void GenerateAndSaveKeyAndIV(string keyPath, string ivPath)
+    {
+        using (Aes aes = Aes.Create())
+        {
+            aes.GenerateKey();
+            File.WriteAllBytes(keyPath, aes.Key);
+
+            aes.GenerateIV();
+            File.WriteAllBytes(ivPath, aes.IV);
+
+            Console.WriteLine("AES Key and IV have been generated and saved.");
+        }
+    }
+
+    public byte[] EncryptFile(string filePath, byte[] key, byte[] iv)
     {
         using (Aes aes = Aes.Create())
         {
             aes.Key = key;
-            aes.GenerateIV();
-            byte[] iv = aes.IV;
+            aes.IV = iv;
             byte[] encrypted;
 
             using (FileStream fs = new FileStream(filePath, FileMode.Open, FileAccess.Read))
             using (MemoryStream ms = new MemoryStream())
             {
-                ms.Write(iv, 0, iv.Length);
                 using (CryptoStream cs = new CryptoStream(ms, aes.CreateEncryptor(), CryptoStreamMode.Write))
                 {
                     fs.CopyTo(cs);
@@ -25,15 +37,6 @@ public class Encryption
             }
 
             return encrypted;
-        }
-    }
-
-    public byte[] GenerateKey()
-    {
-        using (Aes aes = Aes.Create())
-        {
-            aes.GenerateKey();
-            return aes.Key;
         }
     }
 }
@@ -45,32 +48,27 @@ using System.Security.Cryptography;
 
 public class Decryption
 {
-    public byte[] DecryptFile(string encryptedFilePath, byte[] key)
+    public byte[] DecryptFile(string encryptedFilePath, byte[] key, byte[] iv)
     {
         using (Aes aes = Aes.Create())
         {
             aes.Key = key;
-            byte[] iv = new byte[aes.BlockSize / 8];
+            aes.IV = iv;
             byte[] decrypted;
 
             using (FileStream fs = new FileStream(encryptedFilePath, FileMode.Open, FileAccess.Read))
+            using (MemoryStream ms = new MemoryStream())
+            using (CryptoStream cs = new CryptoStream(ms, aes.CreateDecryptor(), CryptoStreamMode.Write))
             {
-                fs.Read(iv, 0, iv.Length);
-
-                using (MemoryStream ms = new MemoryStream())
-                using (CryptoStream cs = new CryptoStream(ms, aes.CreateDecryptor(aes.Key, iv), CryptoStreamMode.Write))
-                {
-                    fs.CopyTo(cs);
-                    cs.FlushFinalBlock();
-                    decrypted = ms.ToArray();
-                }
+                fs.CopyTo(cs);
+                cs.FlushFinalBlock();
+                decrypted = ms.ToArray();
             }
 
             return decrypted;
         }
     }
 }
-
 
 
 using System;
@@ -83,24 +81,25 @@ class Program
         string filePath = "credentials.json";
         string encryptedFilePath = "encrypted_credentials.json";
         string decryptedFilePath = "decrypted_credentials.json";
-        string keyPath = "secret.key";
+        string keyPath = "aesKey.key";
+        string ivPath = "aesIV.iv";
 
         var encryption = new Encryption();
         var decryption = new Decryption();
 
-        // Generate a key and save it
-        byte[] key = encryption.GenerateKey();
-        File.WriteAllBytes(keyPath, key);
+        // Generate and save key and IV
+        encryption.GenerateAndSaveKeyAndIV(keyPath, ivPath);
+
+        // Load the key and IV from files
+        byte[] key = File.ReadAllBytes(keyPath);
+        byte[] iv = File.ReadAllBytes(ivPath);
 
         // Encrypt the file
-        byte[] encrypted = encryption.EncryptFile(filePath, key);
+        byte[] encrypted = encryption.EncryptFile(filePath, key, iv);
         File.WriteAllBytes(encryptedFilePath, encrypted);
 
-        // Read the key back
-        byte[] savedKey = File.ReadAllBytes(keyPath);
-
         // Decrypt the file
-        byte[] decrypted = decryption.DecryptFile(encryptedFilePath, savedKey);
+        byte[] decrypted = decryption.DecryptFile(encryptedFilePath, key, iv);
         File.WriteAllBytes(decryptedFilePath, decrypted);
     }
 }
